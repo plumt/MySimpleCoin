@@ -3,8 +3,6 @@ package com.yun.mysimplecoin.di
 import android.content.Context
 import com.google.gson.GsonBuilder
 import com.yun.mysimplecoin.R
-import com.yun.mysimplecoin.common.constants.SharedPreferencesConstants
-import com.yun.mysimplecoin.common.constants.SharedPreferencesConstants.Key.ACCESS_KEY
 import com.yun.mysimplecoin.util.PreferenceUtil
 import dagger.Module
 import dagger.Provides
@@ -17,6 +15,7 @@ import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
+import javax.inject.Named
 import javax.inject.Singleton
 
 
@@ -47,12 +46,28 @@ object NetworkModule {
 
     @Singleton
     @Provides
-    fun provideSignalRetrofit(
+    @Named("upbit")
+    fun provideSignalUpBitRetrofit(
         client: OkHttpClient,
         @ApplicationContext context: Context
     ): Retrofit {
         return Retrofit.Builder()
             .baseUrl(context.getString(R.string.UPBIT_URL))
+            .addConverterFactory(GsonConverterFactory.create(GsonBuilder().setLenient().create()))
+            .addCallAdapterFactory(RxJava3CallAdapterFactory.create())
+            .client(client)
+            .build()
+    }
+
+    @Singleton
+    @Provides
+    @Named("crawling")
+    fun provideSignalCrawlingRetrofit(
+        client: OkHttpClient,
+        @ApplicationContext context: Context
+    ): Retrofit {
+        return Retrofit.Builder()
+            .baseUrl(context.getString(R.string.CRAWLING_URL))
             .addConverterFactory(GsonConverterFactory.create(GsonBuilder().setLenient().create()))
             .addCallAdapterFactory(RxJava3CallAdapterFactory.create())
             .client(client)

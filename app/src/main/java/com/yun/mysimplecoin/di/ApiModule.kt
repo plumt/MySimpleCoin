@@ -7,6 +7,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import retrofit2.Retrofit
+import javax.inject.Named
 import javax.inject.Singleton
 
 @Module
@@ -15,11 +16,25 @@ object ApiModule {
 
     @Singleton
     @Provides
-    fun providerApi(retrofit: Retrofit): Api {
+    @Named("upbit")
+    fun providerUpBitApi(@Named("upbit") retrofit: Retrofit): Api {
         return retrofit.create(Api::class.java)
     }
 
     @Singleton
     @Provides
-    fun providerRepository(api: Api) = ApiRepository(api)
+    @Named("upbit")
+    fun providerUpBitRepository(@Named("upbit") api: Api) = ApiRepository(api)
+
+    @Singleton
+    @Provides
+    @Named("crawling")
+    fun providerCrawlingApi(@Named("crawling") retrofit: Retrofit): Api {
+        return retrofit.create(Api::class.java)
+    }
+
+    @Singleton
+    @Provides
+    @Named("crawling")
+    fun providerCrawlingRepository(@Named("crawling") api: Api) = ApiRepository(api)
 }

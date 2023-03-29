@@ -3,6 +3,7 @@
     <string name="app_name_dev">MySimpleCoinDev</string>
 
     <string name="UPBIT_URL">https://api.upbit.com/v1/</string>
+    <string name="CRAWLING_URL">https://ubci-api.dunamu-datavalue-dev.com/v1/index/crix/</string>
 
     <string name="SECRET_KEY">FtOxmyxwh8yVhfPJOH2uphbS5kCxIyit8FNHs4ww</string>
 </resources>
