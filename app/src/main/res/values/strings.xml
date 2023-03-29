@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">MySimpleCoin</string>
+    <string name="app_name_dev">MySimpleCoinDev</string>
 </resources>
