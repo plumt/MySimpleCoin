@@ -1,4 +1,8 @@
 <resources>
     <string name="app_name">MySimpleCoin</string>
     <string name="app_name_dev">MySimpleCoinDev</string>
+
+    <string name="UPBIT_URL">https://api.upbit.com/v1/</string>
+
+    <string name="SECRET_KEY">FtOxmyxwh8yVhfPJOH2uphbS5kCxIyit8FNHs4ww</string>
 </resources>
