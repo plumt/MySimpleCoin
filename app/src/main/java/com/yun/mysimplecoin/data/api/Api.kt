@@ -2,6 +2,7 @@ package com.yun.mysimplecoin.data.api
 
 import com.yun.mysimplecoin.data.model.AllCoinsNmModel
 import com.yun.mysimplecoin.data.model.CandlesMinutesModel
+import com.yun.mysimplecoin.data.model.FearGreedModel
 import io.reactivex.rxjava3.core.Observable
 import retrofit2.http.GET
 import retrofit2.http.Header
@@ -27,4 +28,9 @@ interface Api {
         @Query("market") markets: String,
         @Query("count") count: String = "200"
     ) : Observable<List<CandlesMinutesModel.RS>>
+
+    // 공포 탐욕 지수 크롤링
+    @GET("feargreed")
+//    @GET("fearindex")
+    fun crawling() : Observable<FearGreedModel.RS>
 }

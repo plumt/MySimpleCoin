@@ -10,4 +10,6 @@ class ApiRepository @Inject constructor(private val api: Api) {
     fun allCoinsNm() = api.allCoinsNm()
 
     fun candlesMinutes(unit: String, markets: String) = api.candlesMinutes(unit, markets)
+
+    fun crawling() = api.crawling()
 }

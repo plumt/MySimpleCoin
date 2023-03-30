@@ -2,11 +2,14 @@ package com.yun.mysimplecoin.ui.home
 
 import android.app.Application
 import android.util.Log
+import androidx.lifecycle.MutableLiveData
 import com.yun.mysimplecoin.base.BaseViewModel
 import com.yun.mysimplecoin.base.ListLiveData
 import com.yun.mysimplecoin.data.model.AllCoinsNmModel
 import com.yun.mysimplecoin.data.model.CandlesMinutesModel
+import com.yun.mysimplecoin.data.model.FearGreedModel
 import com.yun.mysimplecoin.data.repository.ApiRepository
+import com.yun.mysimplecoin.util.JwtUtil.newToken
 import com.yun.mysimplecoin.util.PreferenceUtil
 import com.yun.mysimplecoin.util.RsiUtil.calRsiMinute
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -26,10 +29,17 @@ class HomeViewModel @Inject constructor(
 
     private val accessToken = "mrPq8Ia8riJv5YQZYRQ5DhF42BYp9EXxr1ZzOhOI"
 
+    val title = MutableLiveData("")
+
     private val allCoinsNmList = ListLiveData<AllCoinsNmModel.RS>()
     private val candlesMinutesList = ListLiveData<CandlesMinutesModel.RS>()
+    private val fearGreedList = MutableLiveData<FearGreedModel.RS>()
 
     init {
+        myCoinsApi()
+    }
+
+    private fun allCoinsNmCall(){
         allCoinsNmApi {
             if (it) {
                 var cnt = 0
@@ -46,10 +56,37 @@ class HomeViewModel @Inject constructor(
     private fun calRsiMinuteCall() {
         Log.d("lys", "--------------------------------")
         val result = calRsiMinute(candlesMinutesList.value!!)
-        result.forEach {
-            Log.d("lys", "calRsiMinute > $it")
+
+        if (result.size == 0) {
+            title.value = ""
+            Log.d("lys", "calRsiMinute is empty")
         }
-        if (result.size == 0) Log.d("lys", "calRsiMinute is empty")
+        else {
+            // 매수 및 매도 해야할 코인이 있다
+            result.forEach {
+                Log.d("lys", "calRsiMinute > $it")
+            }
+            crawlingApi {
+                if (it) {
+                    val data = arrayListOf<Triple<String,String,String>>()
+                    result.forEach { r ->
+                        fearGreedList.value!!.pairs.forEach {  p ->
+                            if(p.code.contains(r.first)){
+                                if(p.score <= "30" && r.second == "매수"){
+                                    // 매수 코인
+                                    data.add(r)
+                                } else if(p.score >= "70" && r.second == "매도"){
+                                    // 매도 코인
+                                    data.add(r)
+                                }
+                            }
+                        }
+                    }
+                    Log.d("lys","data > $data")
+                    title.value = ""
+                }
+            }
+        }
     }
 
 
@@ -95,19 +132,35 @@ class HomeViewModel @Inject constructor(
             })
     }
 
-//    private fun myCoinsApi(index: Int, callBack: (Boolean) -> Unit) {
-//        api.myCoins(newToken(mContext, accessToken)).observeOn(Schedulers.io())
-//            .subscribeOn(Schedulers.io())
-//            .flatMap { Observable.just(it) }
-//            .observeOn(AndroidSchedulers.mainThread())
-//            .map {
-//                Log.d("lys", "myCoins result($index) > $it")
-//            }.subscribe({
-//                callBack(true)
-//                Log.d("lys", "myCoins success($index) > cnt : $myCoinsCnt")
-//            }, {
-//                myCoinsApi(index,callBack)
-//                Log.e("lys", "myCoins fail($index) > ${it.message} ${it}")
-//            })
-//    }
+    private fun crawlingApi(callBack: (Boolean) -> Unit) {
+        crawling_api.crawling().observeOn(Schedulers.io())
+            .subscribeOn(Schedulers.io())
+            .flatMap { Observable.just(it) }
+            .observeOn(AndroidSchedulers.mainThread())
+            .map { it }
+            .subscribe({
+                fearGreedList.value = it
+                Log.d("lys", "crawling success > $it")
+                callBack(true)
+            }, {
+                Log.e("lys", "crawling fail > $it")
+                crawlingApi(callBack)
+            })
+    }
+
+    fun myCoinsApi(isFail: Boolean = false) {
+        if(title.value != "" && !isFail) return
+        title.value = "api 가져오는 중..."
+        upbit_api.myCoins(newToken(mContext, accessToken)).observeOn(Schedulers.io())
+            .subscribeOn(Schedulers.io())
+            .flatMap { Observable.just(it) }
+            .observeOn(AndroidSchedulers.mainThread())
+            .map { it }.subscribe({
+                Log.d("lys", "myCoins success > $it")
+                allCoinsNmCall()
+            }, {
+                Log.e("lys", "myCoins fail > $it")
+                myCoinsApi(true)
+            })
+    }
 }
