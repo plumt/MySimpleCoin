@@ -1,63 +1,68 @@
-package com.yun.mysimplecoin.ui.home
+package com.yun.mysimplecoin.service
 
-import android.app.Application
+import android.content.Context
+import android.location.LocationManager
 import android.util.Log
-import androidx.lifecycle.MutableLiveData
+import androidx.hilt.work.HiltWorker
 import androidx.work.*
-import com.yun.mysimplecoin.base.BaseViewModel
-import com.yun.mysimplecoin.base.ListLiveData
 import com.yun.mysimplecoin.data.model.AllCoinsNmModel
 import com.yun.mysimplecoin.data.model.CandlesMinutesModel
 import com.yun.mysimplecoin.data.model.FearGreedModel
 import com.yun.mysimplecoin.data.repository.ApiRepository
-import com.yun.mysimplecoin.service.CoinWorker
-import com.yun.mysimplecoin.util.JwtUtil.newToken
+import com.yun.mysimplecoin.util.JwtUtil
 import com.yun.mysimplecoin.util.PreferenceUtil
-import com.yun.mysimplecoin.util.RsiUtil.calRsiMinute
-import dagger.hilt.android.lifecycle.HiltViewModel
+import com.yun.mysimplecoin.util.RsiUtil
+import dagger.assisted.Assisted
+import dagger.assisted.AssistedInject
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers
 import io.reactivex.rxjava3.core.Observable
 import io.reactivex.rxjava3.schedulers.Schedulers
 import java.util.concurrent.TimeUnit
-import javax.inject.Inject
 import javax.inject.Named
 
-@HiltViewModel
-class HomeViewModel @Inject constructor(
-    application: Application,
+/**
+ * foreground service에 비해 실행시간이 보장되지 않는다.
+ * 지우지는 않지만 당장 사용하진 않는것으로.
+ * 2023.3.30
+ */
+
+@HiltWorker
+class CoinWorker @AssistedInject constructor(
+    @Assisted mContext: Context,
+    @Assisted workerParams: WorkerParameters,
     private val sharedPreferences: PreferenceUtil,
-    @Named("upbit") private val upbit_api: ApiRepository,
-    @Named("crawling") private val crawling_api: ApiRepository
-) : BaseViewModel(application) {
+    @Named("upbit") upbitapi: ApiRepository,
+    @Named("crawling") crawlingapi: ApiRepository
+) : Worker(mContext, workerParams) {
+
+    private val upbit_api = upbitapi
+    private val crawling_api =crawlingapi
 
     private val accessToken = "mrPq8Ia8riJv5YQZYRQ5DhF42BYp9EXxr1ZzOhOI"
+    private var allCoinsNmList = arrayListOf<AllCoinsNmModel.RS>()
+    private var candlesMinutesList = arrayListOf<CandlesMinutesModel.RS>()
+    private lateinit var fearGreedList: FearGreedModel.RS
 
-    val title = MutableLiveData("")
+    private val context = mContext
 
-    private val allCoinsNmList = ListLiveData<AllCoinsNmModel.RS>()
-    private val candlesMinutesList = ListLiveData<CandlesMinutesModel.RS>()
-    private val fearGreedList = MutableLiveData<FearGreedModel.RS>()
+    var isRunning = false
 
-    init {
-//        myCoinsApi()
-        startWork()
-    }
-
-    fun startWork(){
-        myCoinsApi()
-    }
-
-    fun stopWork(){
+    override fun doWork(): Result {
+        Log.d("lys","doWork")
+        if(!isRunning){
+            myCoinsApi()
+        }
+        return Result.success()
     }
 
     private fun allCoinsNmCall(){
         allCoinsNmApi {
             if (it) {
                 var cnt = 0
-                allCoinsNmList.value!!.forEach {
+                allCoinsNmList.forEach {
                     candlesMinutesApi("5", it.market) {
                         if (it) cnt++
-                        if (cnt == allCoinsNmList.sizes()) calRsiMinuteCall()
+                        if (cnt == allCoinsNmList.size) calRsiMinuteCall()
                     }
                 }
             }
@@ -66,11 +71,12 @@ class HomeViewModel @Inject constructor(
 
     private fun calRsiMinuteCall() {
         Log.d("lys", "--------------------------------")
-        val result = calRsiMinute(candlesMinutesList.value!!)
+        val result = RsiUtil.calRsiMinute(candlesMinutesList)
 
         if (result.size == 0) {
-            title.value = ""
+//            title.value = ""
             Log.d("lys", "calRsiMinute is empty")
+            myCoinsApi()
         }
         else {
             // 매수 및 매도 해야할 코인이 있다
@@ -81,7 +87,7 @@ class HomeViewModel @Inject constructor(
                 if (it) {
                     val data = arrayListOf<Triple<String,String,String>>()
                     result.forEach { r ->
-                        fearGreedList.value!!.pairs.forEach {  p ->
+                        fearGreedList.pairs.forEach {  p ->
                             if(p.code.contains(r.first)){
                                 if(p.score <= "30" && r.second == "매수"){
                                     // 매수 코인
@@ -94,7 +100,8 @@ class HomeViewModel @Inject constructor(
                         }
                     }
                     Log.d("lys","data > $data")
-                    title.value = ""
+                    myCoinsApi()
+//                    title.value = ""
                 }
             }
         }
@@ -109,7 +116,7 @@ class HomeViewModel @Inject constructor(
             .map { it }
             .subscribe({
                 Log.d("lys", "allCoinsNm success $it")
-                allCoinsNmList.clear(true)
+                allCoinsNmList = arrayListOf()
                 it.forEach { data ->
                     if (data.market_warning == "NONE" && data.market.contains("KRW-")) {
                         allCoinsNmList.add(data)
@@ -133,7 +140,7 @@ class HomeViewModel @Inject constructor(
             .observeOn(AndroidSchedulers.mainThread())
             .map { it }
             .subscribe({
-                candlesMinutesList.clear(true)
+                candlesMinutesList = arrayListOf()
                 Log.d("lys", "candlesMinutes success > $it")
                 candlesMinutesList.addAll(it)
                 callBack(true)
@@ -150,7 +157,7 @@ class HomeViewModel @Inject constructor(
             .observeOn(AndroidSchedulers.mainThread())
             .map { it }
             .subscribe({
-                fearGreedList.value = it
+                fearGreedList = it
                 Log.d("lys", "crawling success > $it")
                 callBack(true)
             }, {
@@ -160,9 +167,14 @@ class HomeViewModel @Inject constructor(
     }
 
     fun myCoinsApi(isFail: Boolean = false) {
-        if(title.value != "" && !isFail) return
-        title.value = "api 가져오는 중..."
-        upbit_api.myCoins(newToken(mContext, accessToken)).observeOn(Schedulers.io())
+        if(sharedPreferences.getString(context,"isRunning") == "stop") {
+            isRunning = false
+            return
+        }
+        isRunning = true
+//        if(title.value != "" && !isFail) return
+//        title.value = "api 가져오는 중..."
+        upbit_api.myCoins(JwtUtil.newToken(context, accessToken)).observeOn(Schedulers.io())
             .subscribeOn(Schedulers.io())
             .flatMap { Observable.just(it) }
             .observeOn(AndroidSchedulers.mainThread())
@@ -174,4 +186,36 @@ class HomeViewModel @Inject constructor(
                 myCoinsApi(true)
             })
     }
+
 }
+
+
+/**
+ *
+ * 아래 코드는 해당 work 작업을 실행 및 중지 하는 코드 > viewModel이나 fragment 에서 호출할 떄 쓰임
+ *
+ */
+
+//fun startWork(){
+//    sharedPreferences.setString(mContext,"isRunning","start")
+//    val constraints = Constraints.Builder()
+//        .setRequiredNetworkType(NetworkType.CONNECTED)
+//        .build()
+//
+//    val myWork = PeriodicWorkRequestBuilder<CoinWorker>(
+//        1, TimeUnit.MINUTES
+//    )
+//        .setConstraints(constraints)
+//        .build()
+//
+//    WorkManager.getInstance(mContext).enqueueUniquePeriodicWork(
+//        "MyWorker",
+//        ExistingPeriodicWorkPolicy.UPDATE,
+//        myWork
+//    )
+//}
+//
+//fun stopWork(){
+//    sharedPreferences.setString(mContext,"isRunning","stop")
+//    WorkManager.getInstance(mContext).cancelUniqueWork("MyWorker")
+//}
