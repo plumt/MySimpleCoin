@@ -1,7 +1,6 @@
 package com.yun.mysimplecoin.service
 
 import android.content.Context
-import android.location.LocationManager
 import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.*
@@ -11,13 +10,12 @@ import com.yun.mysimplecoin.data.model.FearGreedModel
 import com.yun.mysimplecoin.data.repository.ApiRepository
 import com.yun.mysimplecoin.util.JwtUtil
 import com.yun.mysimplecoin.util.PreferenceUtil
-import com.yun.mysimplecoin.util.RsiUtil
+import com.yun.mysimplecoin.util.Util
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers
 import io.reactivex.rxjava3.core.Observable
 import io.reactivex.rxjava3.schedulers.Schedulers
-import java.util.concurrent.TimeUnit
 import javax.inject.Named
 
 /**
@@ -71,7 +69,7 @@ class CoinWorker @AssistedInject constructor(
 
     private fun calRsiMinuteCall() {
         Log.d("lys", "--------------------------------")
-        val result = RsiUtil.calRsiMinute(candlesMinutesList)
+        val result = Util.calRsiMinute(candlesMinutesList)
 
         if (result.size == 0) {
 //            title.value = ""

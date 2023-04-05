@@ -1,19 +1,16 @@
 package com.yun.mysimplecoin.data.api
 
-import com.yun.mysimplecoin.data.model.AllCoinsNmModel
-import com.yun.mysimplecoin.data.model.CandlesMinutesModel
-import com.yun.mysimplecoin.data.model.FearGreedModel
+import com.yun.mysimplecoin.data.model.*
 import io.reactivex.rxjava3.core.Observable
-import retrofit2.http.GET
-import retrofit2.http.Header
-import retrofit2.http.Path
-import retrofit2.http.Query
+import retrofit2.http.*
 
 interface Api {
 
     // 내가 보유한 자산 리스트
     @GET("accounts")
-    fun myCoins(@Header("Authorization") Authorization: String) : Observable<Any>
+    fun myCoins(
+        @Header("Authorization") Authorization: String
+    ) : Observable<List<MyCoins.RS>>
 
     // 모든 코인 이름
     @GET("market/all")
@@ -33,4 +30,40 @@ interface Api {
     @GET("feargreed")
 //    @GET("fearindex")
     fun crawling() : Observable<FearGreedModel.RS>
+
+    // 주문 리스트를 조회
+    @GET("orders")
+    fun orders(
+        @Header("Authorization") Authorization: String,
+//        @Query("market") market: String,
+        @Query("state") state: String,
+        @Query("page") page: String
+    ) : Observable<List<OrderModel.RS>>
+
+    // 주문 취소
+    @DELETE("order")
+    fun order(
+        @Header("Authorization") Authorization: String,
+        @Query("uuid") uuid: String
+    ) : Observable<OrderModel.RS>
+
+    // 주문요청 - 매수
+    @POST("orders")
+    fun orders(
+        @Header("Authorization") Authorization: String,
+        @Body rq: OrderModel.BID
+    ) : Observable<OrderModel.RS>
+
+    // 주문요청 - 매도
+    @POST("orders")
+    fun orders(
+        @Header("Authorization") Authorization: String,
+        @Body rq: OrderModel.ASK
+    ) : Observable<OrderModel.RS>
+
+    // 호가 정보
+    @GET("orderbook")
+    fun orderBook(
+        @Query("markets") markets: String
+    ) : Observable<OrderBookModel.RS>
 }

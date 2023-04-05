@@ -1,8 +1,10 @@
 package com.yun.mysimplecoin.util
 
+import com.yun.mysimplecoin.common.constants.OrderConstants.SIDE.ASK
+import com.yun.mysimplecoin.common.constants.OrderConstants.SIDE.BID
 import com.yun.mysimplecoin.data.model.CandlesMinutesModel
 
-object RsiUtil {
+object Util {
     fun calRsiMinute(candles: ArrayList<CandlesMinutesModel.RS>): ArrayList<Triple<String, String, String>> {
         var U_cnt = 0
         var U_BEFORE = 0.0
@@ -48,9 +50,9 @@ object RsiUtil {
         val RSI = RS / (1 + RS)
         val RSI100 = (RSI * 100).toInt()
         if (RSI100 >= getRsiMax().toInt()) {
-            result.add(Triple(candles[0].market, "매도", RSI100.toString()))
+            result.add(Triple(candles[0].market, BID, RSI100.toString()))
         } else if (RSI100 <= getRsiMin().toInt()) {
-            result.add(Triple(candles[0].market, "매수", RSI100.toString()))
+            result.add(Triple(candles[0].market, ASK, RSI100.toString()))
         }
         return result
     }
@@ -63,5 +65,12 @@ object RsiUtil {
     private fun getRsiMax(): String {
         // rsi max - 매도 시점
         return "70"
+    }
+
+    fun getStandardDeviation(numbers: List<Int>): Double {
+        val size = numbers.size
+        val mean = numbers.average()
+        val variance = numbers.map { (it - mean) * (it - mean) }.sum() / (size - 1)
+        return Math.sqrt(variance)
     }
 }
