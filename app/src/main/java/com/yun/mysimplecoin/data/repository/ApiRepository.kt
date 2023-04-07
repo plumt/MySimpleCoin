@@ -22,6 +22,11 @@ class ApiRepository @Inject constructor(private val api: Api) {
     fun candlesMinutes(unit: String, markets: String) = api.candlesMinutes(unit, markets)
 
     /**
+     * 1일 간격 지수
+     */
+    fun candlesDays(markets: String, count: String) = api.candlesDays(markets, count)
+
+    /**
      * 공포 탐욕
      */
     fun crawling() = api.crawling()

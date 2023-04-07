@@ -26,6 +26,14 @@ interface Api {
         @Query("count") count: String = "200"
     ) : Observable<List<CandlesMinutesModel.RS>>
 
+    // 시세 캔들 조회 - 일 캔들
+    @GET("candles/days")
+    fun candlesDays(
+        @Query("market") markets: String,
+        @Query("count") count: String
+    ) : Observable<List<CandlesMinutesModel.RS>>
+
+
     // 공포 탐욕 지수 크롤링
     @GET("feargreed")
 //    @GET("fearindex")
@@ -65,5 +73,5 @@ interface Api {
     @GET("orderbook")
     fun orderBook(
         @Query("markets") markets: String
-    ) : Observable<OrderBookModel.RS>
+    ) : Observable<List<OrderBookModel.RS?>>
 }

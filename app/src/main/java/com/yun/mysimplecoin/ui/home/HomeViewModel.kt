@@ -60,18 +60,62 @@ class HomeViewModel @Inject constructor(
     private var askCoins = ArrayList<Triple<String, String, String>>()
 
     init {
-        val numbers = listOf(10, 20, 30, 40, 50)
-        val standardDeviation = getStandardDeviation(numbers)
-        Log.d("lys","standardDeviation > ${standardDeviation}")
 
         testApi()
     }
 
     fun testApi() {
-        myCoinsApi() {
 
+        var a = 0.0
+        candlesDaysApi("KRW-BTC", "20") { s ->
+            if (s != null) {
+                candlesDaysApi("KRW-BTC", "100") { l ->
+                    if (l != null) {
+                        var short = 0.0
+                        var long = 0.0
+                        var priceList = arrayListOf<Double>()
+                        s.forEach {
+                            short += it.trade_price.toDouble()
+                            priceList.add(it.trade_price.toDouble())
+                        }
+                        short /= s.size
+
+                        l.forEach {
+                            long += it.trade_price.toDouble()
+                        }
+                        long /= l.size
+                        if (short > long) Log.d("lys", "$short $long 상향 돌파")
+                        else if (short < long) Log.d("lys", "$short $long 하향 돌파")
+                        else Log.d("lys", "$short $long 유지")
+
+                        orderBookApi("KRW-BTC") { data ->
+                            if (data != null) {
+                                Log.d("lys", "매도 호가 > ${data.orderbook_units[0].ask_price}")
+                            }
+                        }
+
+
+                        val standardDeviation = getStandardDeviation(priceList)
+                        Log.d("lys", "standardDeviation > ${standardDeviation}")
+//                        상한선 = 중심선 + (표준편차 계수(2) X 주가의 표준편차)
+//                        하한선 = 중심선 - (표준편차 계수(2) X 주가의 표준편차)
+                        val a = short + (standardDeviation * 2)
+                        val b = short - (standardDeviation * 2)
+                        Log.d("lys","상한선 > $a  하한선 > $b")
+
+
+                        candlesMinutesApi("5", "KRW-BTC") {
+//                            if (it) cnt++
+//                            if (cnt == allCoinsNmList.size) calRsiMinuteCall()
+                            if(it){
+                                calRsiMinuteCall()
+                            }
+                        }
+
+                    }
+                }
+            }
         }
-
     }
 
     fun startWork() {
@@ -376,6 +420,9 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    /**
+     * 코인 호가
+     */
     private fun orderBookApi(
         market: String,
         failCnt: Int = 0,
@@ -389,7 +436,7 @@ class HomeViewModel @Inject constructor(
             .map { it }
             .subscribe({
                 Log.d("lys", "orderBook success > $it")
-                callBack(it)
+                callBack(it[0])
             }, {
                 if (failCnt < 100) orderBookApi(market, failCnt + 1, callBack)
                 else {
@@ -405,7 +452,7 @@ class HomeViewModel @Inject constructor(
     private fun coinCancel() {
         // 매도 조건 코인이 대기 목록에 있다면 걸었던 걸 취소하고, 보유중인 모든 코인을 매도
         askCoins.forEach { coin ->
-            if(coin.third != ""){
+            if (coin.third != "") {
                 orders("cancel", coin.third) {
                     if (it) {
                         coinAsk(coin)
@@ -420,7 +467,7 @@ class HomeViewModel @Inject constructor(
     /**
      * 코인 매도
      */
-    private fun coinAsk(coin: Triple<String, String, String>){
+    private fun coinAsk(coin: Triple<String, String, String>) {
         // 나의 코인 정보를 재검색 한 이후에 매도
         myCoinsApi {
             if (it) {
@@ -433,6 +480,45 @@ class HomeViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    /**
+     * 지정한 일수만큼 코인 종가를 가져온다
+     */
+    private fun candlesDaysApi(
+        market: String,
+        count: String,
+        callBack: (List<CandlesMinutesModel.RS>?) -> Unit
+    ) {
+        upbit_api.candlesDays(market, count)
+            .observeOn(Schedulers.io())
+            .subscribeOn(Schedulers.io())
+            .flatMap { Observable.just(it) }
+            .observeOn(AndroidSchedulers.mainThread())
+            .map { it }
+            .subscribe({
+                Log.d("lys", "candlesDays success > $it")
+                callBack(it)
+//                orderBookApi(market){ data ->
+//                    if(data != null){
+//                        var temp = 0.0
+//                        it.forEach {
+//                            temp += it.trade_price.toDouble()
+//                        }
+//                        Log.d("lys","평균(${count}) > ${temp / it.size}  |  매도 호가 > ${data.orderbook_units[0].ask_price}")
+////                        Log.d("lys","평균 > ${String.format("%.4f",temp / it.size)}  |  매도 호가 > ${String.format("%.4f",data.orderbook_units[0].ask_price)}")
+//                        if(data.orderbook_units[0].ask_price.toDouble() > (temp / it.size)){
+//                            Log.d("lys","상승")
+//                        } else {
+//                            Log.d("lys","하락")
+//                        }
+//                    }
+//                }
+//                callBack(it)
+            }, {
+                Log.e("lys", "candlesDays fail > $it")
+                callBack(null)
+            })
     }
 
 //    fun testApi(){
@@ -449,7 +535,6 @@ class HomeViewModel @Inject constructor(
 //    }
 
 
-
 }
 
 
@@ -463,13 +548,13 @@ class HomeViewModel @Inject constructor(
 
 // 이동평균선 > 최근 5일의 종가를 더한 후 5로 나눈 값이 현재 주가와 비교해서 높낮이를 확인 > 현재 주가가 높으면 상승 추세, 낮으면 하락 추세
 // 단기 이동 평균선과 장기 이동평균선이 교차하는 지점을 기반으로 매수 매도
-// 단기 평균선이 장기 평균선을 아래에서 위로 돌파하면 상승 추세 > 매수 타이밍
-// 단기 평균선이 장기 평균서을 위에서 아래로 돌파하면 하락 추세 > 매도 타이밍
+// 단기 평균선이 장기 평균선을 아래에서 위로 돌파(상향돌파)하면 상승 추세 > 매수 타이밍 (MACD)
+// 단기 평균선이 장기 평균선을 위에서 아래로 돌파(하향돌파)하면 하락 추세 > 매도 타이밍 (MACD)
 
 // MACD > 빠른 지수와 느린 지슈의 차이를 계산
 // 빠른 지수 이동평균(12일), 느린 지수이동편균(26일)
 // MACD 선 = 빠른지수 - 느린지수 결과가 0보다 크면 상승 추세, 0보다 작으면 하락 추세
-// 신호선(9일 이동편균) 과 MACD 선이 교차할 때 매수/매도
+// 신호선(9일 이동평균) 과 MACD 선이 교차할 때 매수/매도
 // MACD 선이 신호선을 상향 돌파하면 매수 신호
 // MACD 선이 신호선을 하향 돌파하면 매도 신호
 
@@ -483,6 +568,7 @@ class HomeViewModel @Inject constructor(
 // 400 + 100 + 0 + 100 + 400 = 1000
 // 루트(1000 / (5 - 1)) = 루트(250)
 // 상한선을 돌파하면 과대매수, 하한선을 돌파하면 과대매도 상태
+// 현재 주가가 중심선 위쪽으로 상승하면서 상한선 돌파하면 상한 돌파 > 과대매수
 
 // rsi
 // 70 이상이면 과매수 > 지금 현재 코딩으론 매도하게 코딩

@@ -67,7 +67,7 @@ object Util {
         return "70"
     }
 
-    fun getStandardDeviation(numbers: List<Int>): Double {
+    fun getStandardDeviation(numbers: List<Double>): Double {
         val size = numbers.size
         val mean = numbers.average()
         val variance = numbers.map { (it - mean) * (it - mean) }.sum() / (size - 1)
