@@ -14,7 +14,7 @@ package com.yun.mysimplecoin.data.model
     unit - 분 단위(유닛)
  */
 
-class CandlesMinutesModel {
+class CandlesModel {
     data class RS(
         val market: String,
         val candle_date_time_utc: String,

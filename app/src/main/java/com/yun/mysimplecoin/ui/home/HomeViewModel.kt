@@ -5,8 +5,6 @@ import android.util.Log
 import androidx.lifecycle.MutableLiveData
 import androidx.work.*
 import com.yun.mysimplecoin.base.BaseViewModel
-import com.yun.mysimplecoin.common.constants.OrderConstants.SIDE.ASK
-import com.yun.mysimplecoin.common.constants.OrderConstants.SIDE.BID
 import com.yun.mysimplecoin.data.model.*
 import com.yun.mysimplecoin.data.repository.ApiRepository
 import com.yun.mysimplecoin.util.JwtUtil.newToken
@@ -15,15 +13,15 @@ import com.yun.mysimplecoin.util.Util.calRsiMinute
 import com.yun.mysimplecoin.util.Util.getStandardDeviation
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers
-import io.reactivex.rxjava3.core.Observable
 import io.reactivex.rxjava3.schedulers.Schedulers
+import java.text.DecimalFormat
 import javax.inject.Inject
 import javax.inject.Named
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     application: Application,
-    private val sharedPreferences: PreferenceUtil,
+    private val sPrefs: PreferenceUtil,
     @Named("upbit") private val upbit_api: ApiRepository,
     @Named("crawling") private val crawling_api: ApiRepository
 ) : BaseViewModel(application) {
@@ -31,6 +29,8 @@ class HomeViewModel @Inject constructor(
     private val accessToken = "mrPq8Ia8riJv5YQZYRQ5DhF42BYp9EXxr1ZzOhOI"
 
     val title = MutableLiveData("")
+
+    var isRunning = false
 
     /**
      * 보유 코인 리스트
@@ -41,11 +41,6 @@ class HomeViewModel @Inject constructor(
      * 모든 코인 이름
      */
     private var allCoinsNmList = ArrayList<AllCoinsNmModel.RS>()
-
-    /**
-     * 코인들의 5분간의 거래 동향
-     */
-    private var candlesMinutesList = ArrayList<CandlesMinutesModel.RS>()
 
     /**
      * 코인들의 공포 탐욕 지수
@@ -59,119 +54,269 @@ class HomeViewModel @Inject constructor(
 
     private var askCoins = ArrayList<Triple<String, String, String>>()
 
+    /**
+     * 코인들의 rsi, 이동 평균선, 볼린저 밴드, MACD
+     * 프로세스 시작점에서 초기화 해줘야 함
+     */
+    private var coinIndexList = ArrayList<CoinIndexModel.data>()
+
+    /**
+     * 코인 현재가
+     */
+    private var tickers = ArrayList<TickerModel.RS>()
+
     init {
 
-        testApi()
+        startWork()
     }
 
-    fun testApi() {
+    /**
+     * 프로세스 시작
+     * 1. 보유 중인 코인 목록을 가져오는 api 호출
+     * 2. 성공적으로 가져오면 모든 코인들에 대한 정보를 가져오는 로직 시작
+     * 3. 이후 모든 로직이 성공하면 isSuccess 가 true, 중간에 한 번이라도 오류가 발생하면 false
+     */
+    fun startWork() {
+        title.postValue("api 가져오는 중...")
+        isRunning = true
+        coinIndexList = arrayListOf()
+        myCoinsApi {
+            if (!isRunning) {
+                Log.d("lys-test", "running stop")
+            } else if (it) allCoinsNmCall { isSuccess ->
+                title.postValue("")
 
-        var a = 0.0
-        candlesDaysApi("KRW-BTC", "20") { s ->
-            if (s != null) {
-                candlesDaysApi("KRW-BTC", "100") { l ->
-                    if (l != null) {
-                        var short = 0.0
-                        var long = 0.0
-                        var priceList = arrayListOf<Double>()
-                        s.forEach {
-                            short += it.trade_price.toDouble()
-                            priceList.add(it.trade_price.toDouble())
-                        }
-                        short /= s.size
-
-                        l.forEach {
-                            long += it.trade_price.toDouble()
-                        }
-                        long /= l.size
-                        if (short > long) Log.d("lys", "$short $long 상향 돌파")
-                        else if (short < long) Log.d("lys", "$short $long 하향 돌파")
-                        else Log.d("lys", "$short $long 유지")
-
-                        orderBookApi("KRW-BTC") { data ->
-                            if (data != null) {
-                                Log.d("lys", "매도 호가 > ${data.orderbook_units[0].ask_price}")
+                if (!isRunning) {
+                    Log.d("lys-test", "running stop")
+                } else if (isSuccess) {
+                    // 모든 계산 완료 > 이후 매수 및 매도 관리
+                    //TODO 매도 및 매수 로직 시작
+                    Log.d("lys-test", "모든 로직 완료. 이후 매수 및 매도 작업 진행")
+                    coinIndexList.forEachIndexed { index, it ->
+                        fearGreedList.pairs.forEachIndexed { _, data ->
+                            if (data.code.contains(it.market)) {
+                                coinIndexList[index].score = data.score
+                                return@forEachIndexed
                             }
                         }
-
-
-                        val standardDeviation = getStandardDeviation(priceList)
-                        Log.d("lys", "standardDeviation > ${standardDeviation}")
-//                        상한선 = 중심선 + (표준편차 계수(2) X 주가의 표준편차)
-//                        하한선 = 중심선 - (표준편차 계수(2) X 주가의 표준편차)
-                        val a = short + (standardDeviation * 2)
-                        val b = short - (standardDeviation * 2)
-                        Log.d("lys","상한선 > $a  하한선 > $b")
-
-
-                        candlesMinutesApi("5", "KRW-BTC") {
-//                            if (it) cnt++
-//                            if (cnt == allCoinsNmList.size) calRsiMinuteCall()
-                            if(it){
-                                calRsiMinuteCall()
-                            }
-                        }
-
                     }
+
+                    checkAskBid()
+
+
+                    Log.d("lys-test", "result > ${coinIndexList[0]}")
+
+                    Log.d("lys-test", "size : ${allCoinsNmList.size}  size: ${coinIndexList.size}")
+                } else {
+                    Log.e("lys-test", "중간에 뭔가 오류가 있었음. 초기화 후 재진행")
+                    // 중간에 뭔가 오류가 발생함 > 초기화하고 다시 작업
                 }
+                isRunning = false
             }
+            else {
+            } // network error
         }
     }
 
-    fun startWork() {
-        myCoinsApi {
-            if (it) allCoinsNmCall()
+    /**
+     * 프로세스 종료
+     */
+    fun stopWork() {
+        isRunning = false
+    }
+
+    /**
+     * 모든 코인들의 정보를 가져오는 로직
+     * 1. 모든 코인의 정보를 가져오는 api 호출 > 거래 재화가 KRW 이며, 주의가 아닌 항목에 대해서만
+     * 2. 성공적으로 가져오면 공포/탐욕 지수 정보 가져오는 로직 시작
+     */
+    private fun allCoinsNmCall(callBack: (Boolean) -> Unit) {
+        allCoinsNmApi {
+            if (!isRunning) {
+                Log.d("lys", "running stop")
+                callBack(false)
+            } else if (it) crawlingCall(callBack)
             else {
                 // network error
+                Log.e("lys", "allCoinsNmApi fail")
+                callBack(false)
             }
         }
     }
 
-    fun stopWork() {
+    /**
+     * 공포/탐욕 지수 정보 가져오는 로직
+     * 1. 공포/탐욕 지수 정보를 가져오는 api 호출
+     * 2. 성공적으로 가져오면 업비트 코인 목록들에 대해 각각 5분 간격의 캔들 데이터를 조회하는 로직 시작
+     */
+    private fun crawlingCall(callBack: (Boolean) -> Unit) {
+        crawlingApi {
+            if (!isRunning) {
+                Log.d("lys", "running stop")
+                callBack(false)
+            } else if (it) candleMinutesCall(callBack = callBack)
+            else {
+                // network error
+                Log.e("lys", "crawlingApi fail")
+                callBack(false)
+            }
+        }
     }
 
-    fun myCoinsApi(failCnt: Int = 0, callBack: (Boolean) -> Unit) {
-        if (title.value != "") return
-        title.value = "api 가져오는 중..."
-        upbit_api.myCoins(newToken(mContext, accessToken)).observeOn(Schedulers.io())
-            .subscribeOn(Schedulers.io())
-            .flatMap { Observable.just(it) }
-            .observeOn(AndroidSchedulers.mainThread())
-            .map { it }.subscribe({
-                myCoins = arrayListOf()
-                myCoins.addAll(it)
-                Log.d("lys", "myCoins success > $it")
-                callBack(true)
-//                allCoinsNmCall()
-            }, {
-                if (failCnt < 100) myCoinsApi(failCnt + 1, callBack)
-                else {
-                    Log.e("lys", "myCoins fail > $it")
-                    callBack(false)
-                }
-            })
+    /**
+     * 코인들의 5분 간격 캔들 데이터를 조회하는 로직
+     * 1. 코인들의 5분 간격 캔들 데이터를 조회하는 api 호출
+     * 2. 성공적으로 모두 가져오면, 1일 간격 캔들 데이터를 조회하는 로직 시작
+     */
+    private fun candleMinutesCall(index: Int = 0, callBack: (Boolean) -> Unit) {
+        if (index == allCoinsNmList.size) candleDaysCall(callBack = callBack) // 마지막 코인까지 api 전송했으면 다음 로직
+        else if (!isRunning) callBack(false) // 일시 정지 눌렀을 경우 로직 정지
+        else {
+            candlesMinutesApi("5", allCoinsNmList[index].market) {
+                if (it) candleMinutesCall(index + 1, callBack)
+                else callBack(false)
+            }
+        }
     }
 
-    private fun allCoinsNmCall() {
-        allCoinsNmApi {
+    /**
+     * 코인들의 1일 간격 캔들 데이터 조회하는 로직
+     * 1. 코인들의 1일 간격 캔들 데이터를 조회하는 api 호출
+     * 2. 성공적으로 모두 가져오면,
+     */
+    private fun candleDaysCall(index: Int = 0, callBack: (Boolean) -> Unit) {
+        if (index == allCoinsNmList.size) callBack(true) // 마지막 코인까지 api 전송했으면 callBack
+        else if (!isRunning) callBack(false) //
+        else {
+            candlesDaysApi(allCoinsNmList[index].market, "100") {
+                if (it) candleDaysCall(index + 1, callBack)
+                else callBack(false)
+            }
+        }
+    }
+
+    /**
+     * 지수를 기반으로 매수 및 매도 계산
+     */
+    private fun checkAskBid() {
+        // case 1. 이동 평균선이 상승 추세, MACD 가 0을 상향 돌파, 볼린저 밴드의 상한선을 돌파 "RSI 70 이상" > 매도
+        // case 2. 이동 평균선이 하락 추세, MACD 가 0을 하향 돌파, 볼린저 밴드의 하한선을 돌파 "RSI 30 이하" > 매수
+
+
+        // case 3. 이동 평균선 상향 돌파, MACD 신호선 상향, 볼린저 밴드 상한선 > 매수
+        // case 4. 이동 평균선 하향 돌파, MACD 신호선 하향, 불린저 밴드 하한선, RSI 30 이하 > 매도
+
+        // case 5. RSI 70이상, 탐욕 지수 > 매도
+        // case 6. RSI 30이하, 공포 지수 > 매수
+
+        ticker(tickerParams()) {
             if (it) {
-                var cnt = 0
-                allCoinsNmList.forEach {
-                    candlesMinutesApi("5", it.market) {
-                        if (it) cnt++
-                        if (cnt == allCoinsNmList.size) calRsiMinuteCall()
+                Log.d("lys","#####################")
+                coinIndexList.forEachIndexed { index, coin ->
+                    var log = "${coin.market}(${allCoinsNmList[index].korean_name})"
+                    log += " > 현재가 ${tickers[index].trade_price}"
+
+//                    if (coin.rsi!!.rsi.toDouble() >= 70.0) log += " > rsi 70 이상(과매수)"
+//                    else if (coin.rsi!!.rsi.toDouble() <= 30.0) Log.d("lys", "> rsi 30 이하(과매도)")
+//
+//                    if (coin.score != null && coin.score!!.toDouble() >= 70.0) log += " > 탐욕"
+//                    else if (coin.score != null && coin.score!!.toDouble() <= 30.0) log += " > 공포"
+
+
+
+                    if(tickers[index].trade_price > coin.mv!!.middle
+                        && coin.macd!!.fast.toDouble() - coin.macd!!.slow.toDouble() > 0.0
+                        && tickers[index].trade_price > coin.bb!!.upper){
+                        if (coin.rsi!!.rsi.toDouble() >= 70.0){
+                            // case 3
+                            // TODO 매수
+                            log += " > 매수(1)"
+                        } else {
+                            // case 1
+                            // TODO 매도
+                            log += " > 매도(1)"
+                        }
+                    }
+                    else if(tickers[index].trade_price < coin.mv!!.middle
+                        && coin.macd!!.fast.toDouble() - coin.macd!!.slow.toDouble() < 0.0
+                        && tickers[index].trade_price < coin.bb!!.lower){
+                        if (coin.rsi!!.rsi.toDouble() <= 30.0){
+                            // case 4
+                            // TODO 매도
+                            log += " > 매도(2)"
+                        } else {
+                            // case 2
+                            // TODO 매수
+                            log += " > 매수(2)"
+                        }
+                    }
+                    else if(coin.rsi!!.rsi.toDouble() >= 70.0
+                        && coin.score != null && coin.score!!.toDouble() >= 70.0){
+                        // TODO 매도
+                        log += " > 매도(3)"
+                    }
+                    else if(coin.rsi!!.rsi.toDouble() <= 30.0
+                        && coin.score != null && coin.score!!.toDouble() <= 30.0){
+                        // TODO 매수
+                        log += " > 매수(3)"
+                    }
+
+                    if(log.contains("매도")){
+                        myCoins.forEach {
+                            if(("KRW-"+it.currency) == coin.market){
+                                // 내가 보유하고 있다
+                                //TODO 매도 목록에 추가
+                                log += " > 보유"
+                            }
+                        }
+                    }
+
+                    if(log.contains("매수") || log.contains("매도")){
+                        Log.d("lys", log)
                     }
                 }
             } else {
-                // network error
+                //TODO network error
             }
         }
     }
 
-    private fun allCoinsNmApi(failCnt: Int = 0, callBack: (Boolean) -> Unit) {
-        upbit_api.allCoinsNm().observeOn(Schedulers.io())
+    /**
+     * ticker parameter
+     * 검색 가능한 모든 코인들의 이름을 리턴
+     * ex) KRW-BTC,KRW-WAXP,KRW-STPT ...
+     */
+    private fun tickerParams() : String {
+        var coinNm = ""
+        coinIndexList.forEachIndexed { index, coin ->
+            if (index != 0) coinNm += ","
+            coinNm += coin.market
+        }
+        return coinNm
+    }
+
+    /**
+     * 보유 중인 코인을 가져오는 api
+     */
+    private fun myCoinsApi(failCnt: Int = 0, callBack: (Boolean) -> Unit) {
+        if (title.value != "" && failCnt == 0) return
+        upbit_api.myCoins(newToken(mContext, accessToken))
             .subscribeOn(Schedulers.io())
-            .flatMap { Observable.just(it) }
+            .observeOn(AndroidSchedulers.mainThread())
+            .map { it }.subscribe({
+                Log.d("lys", "myCoins success > $it")
+                myCoins = arrayListOf()
+                myCoins.addAll(it)
+                callBack(true)
+            }, {
+                if (failCnt < 100) myCoinsApi(failCnt + 1, callBack)
+                else callBack(false); Log.e("lys", "myCoins fail > $it")
+            })
+    }
+
+    private fun allCoinsNmApi(failCnt: Int = 0, callBack: (Boolean) -> Unit) {
+        upbit_api.allCoinsNm()
+            .subscribeOn(Schedulers.io())
             .observeOn(AndroidSchedulers.mainThread())
             .map { it }
             .subscribe({
@@ -184,85 +329,164 @@ class HomeViewModel @Inject constructor(
                 }
                 callBack(true)
             }, {
-
                 if (failCnt < 100) allCoinsNmApi(failCnt + 1, callBack)
                 else {
                     Log.e("lys", "allCoinsNm fail > $it")
                     callBack(false)
                 }
+
             })
     }
 
     private fun candlesMinutesApi(
         unit: String,
         market: String,
+        failCnt: Int = 0,
         callBack: (Boolean) -> Unit
     ) {
-        upbit_api.candlesMinutes(unit, market).observeOn(Schedulers.io())
+        upbit_api.candlesMinutes(unit, market)
             .subscribeOn(Schedulers.io())
-            .flatMap { Observable.just(it) }
             .observeOn(AndroidSchedulers.mainThread())
             .map { it }
             .subscribe({
-                candlesMinutesList = arrayListOf()
-//                Log.d("lys", "candlesMinutes success > $it")
-                candlesMinutesList.addAll(it)
+                coinIndexList.add(
+                    CoinIndexModel.data(
+                        market,
+                        rsi = CoinIndexModel.data.Rsi(calRsiMinute(it as ArrayList<CandlesModel.RS>).toString())
+                    )
+                )
                 callBack(true)
             }, {
-//                Log.e("lys", "candlesMinutes fail > $it")
-                candlesMinutesApi(unit, market, callBack)
+                if (failCnt < 100) candlesMinutesApi(unit, market, failCnt + 1, callBack)
+                else {
+                    Log.e("lys", "candlesMinutes fail($failCnt) > $it")
+                    callBack(false)
+                }
             })
     }
 
-    private fun calRsiMinuteCall() {
-        Log.d("lys", "--------------------------------")
-        val rsiResult = calRsiMinute(candlesMinutesList)
+    /**
+     * 지정한 일수만큼 코인 종가를 가져온다
+     */
+    private fun candlesDaysApi(
+        market: String,
+        count: String,
+        failCnt: Int = 0,
+        callBack: (Boolean) -> Unit
+    ) {
+        upbit_api.candlesDays(market, count)
+            .subscribeOn(Schedulers.io())
+            .observeOn(AndroidSchedulers.mainThread())
+            .map { it }
+            .subscribe({
+//                Log.d("lys", "candlesDays success > $it")
 
-        if (rsiResult.size == 0) {
+
+                var slow = 0.0 // 장기
+                var fast = 0.0 // 단기
+                var middle = 0.0 // 중심
+
+                var slowCnt = 0
+                var fastCnt = 0
+                var middleCnt = 0
+
+                val middleList = ArrayList<Double>()
+
+                it.forEachIndexed { index, coin ->
+                    if (index < 10) {
+                        fast += coin.trade_price.toDouble()
+                        fastCnt++
+                    }
+                    if (index < 20) {
+                        middle += coin.trade_price.toDouble()
+                        middleCnt++
+                        middleList.add(coin.trade_price.toDouble())
+                    }
+                    if (index < 50) {
+                        slow += coin.trade_price.toDouble()
+                        slowCnt++
+                    }
+                }
+
+                fast /= fastCnt
+                middle /= middleCnt
+                slow /= slowCnt
+
+                val standardDeviation = getStandardDeviation(middleList)
+                val upper = middle + (standardDeviation * 2)
+                val lower = middle - (standardDeviation * 2)
+                coinIndexList.forEachIndexed { index, coinIndex ->
+                    if (coinIndex.market == market) {
+                        coinIndexList[index].mv =
+                            CoinIndexModel.data.Mv(DecimalFormat("#.###").format(middle))
+                        coinIndexList[index].macd = CoinIndexModel.data.Macd(
+                            DecimalFormat("#.###").format(fast),
+                            DecimalFormat("#.###").format(slow),
+                        )
+                        coinIndexList[index].bb = CoinIndexModel.data.Bb(
+                            DecimalFormat("#.###").format(upper),
+                            DecimalFormat("#.###").format(lower)
+                        )
+                        return@forEachIndexed
+                    }
+                }
+                callBack(true)
+            }, {
+                if (failCnt < 100) candlesDaysApi(market, count, failCnt + 1, callBack)
+                else {
+                    Log.e("lys", "candlesDays fail($failCnt) > $it")
+                    callBack(false)
+                }
+            })
+    }
+
+    private fun calRsiMinuteCall(list: ArrayList<CandlesModel.RS>, callBack: (Boolean) -> Unit) {
+        val rsiResult = calRsiMinute(list)
+
+//        if (rsiResult.size == 0) {
+//            title.value = ""
+//            Log.d("lys", "calRsiMinute is empty")
+//        } else {
+        // 매수 및 매도 해야할 코인이 있다
+//            crawlingApi {
+//                if (it) {
+        val askCoins = arrayListOf<Pair<String, String>>()
+        val bidCoins = arrayListOf<Pair<String, String>>()
+//            rsiResult.forEach { r ->
+//                fearGreedList.pairs.forEach { p ->
+//                    if (p.code.contains(r.first)) {
+//                        if (p.score <= "30" && r.second == ASK) {
+//                            // 매수 코인
+//                            askCoins.add(Pair(r.first, r.second))
+//                        } else if (p.score >= "70" && r.second == BID) {
+//                            // 매도 코인
+//                            bidCoins.add(Pair(r.first, r.second))
+//                        }
+//                    }
+//                }
+//            }
+        if (askCoins.size == 0 && bidCoins.size == 0) {
             title.value = ""
-            Log.d("lys", "calRsiMinute is empty")
         } else {
-            // 매수 및 매도 해야할 코인이 있다
-            crawlingApi {
+            Log.d("lys", "askCoin > $askCoins  bidCoin > $bidCoins")
+            sellCoinCheck(askCoins) {
                 if (it) {
-                    val askCoins = arrayListOf<Pair<String, String>>()
-                    val bidCoins = arrayListOf<Pair<String, String>>()
-                    rsiResult.forEach { r ->
-                        fearGreedList.pairs.forEach { p ->
-                            if (p.code.contains(r.first)) {
-                                if (p.score <= "30" && r.second == ASK) {
-                                    // 매수 코인
-                                    askCoins.add(Pair(r.first, r.second))
-                                } else if (p.score >= "70" && r.second == BID) {
-                                    // 매도 코인
-                                    bidCoins.add(Pair(r.first, r.second))
-                                }
-                            }
-                        }
-                    }
-                    if (askCoins.size == 0 && bidCoins.size == 0) {
-                        title.value = ""
-                    } else {
-                        Log.d("lys", "askCoin > $askCoins  bidCoin > $bidCoins")
-                        sellCoinCheck(askCoins) {
-                            if (it) {
-                                //구매 ㄲ
-                            }
-                        }
-
-                    }
-
-                } else {
-                    // network error
+                    //구매 ㄲ
                 }
             }
+
+//                    }
+
+//                } else {
+//                    // network error
+//                }
+//            }
         }
     }
 
     private fun crawlingApi(failCnt: Int = 0, callBack: (Boolean) -> Unit) {
-        crawling_api.crawling().observeOn(Schedulers.io())
+        crawling_api.crawling()
             .subscribeOn(Schedulers.io())
-            .flatMap { Observable.just(it) }
             .observeOn(AndroidSchedulers.mainThread())
             .map { it }
             .subscribe({
@@ -270,12 +494,27 @@ class HomeViewModel @Inject constructor(
                 Log.d("lys", "crawling success > $it")
                 callBack(true)
             }, {
-
                 if (failCnt < 100) crawlingApi(failCnt + 1, callBack)
                 else {
                     Log.e("lys", "crawling fail > $it")
                     callBack(false)
                 }
+            })
+    }
+
+    private fun ticker(markets: String, failCnt: Int = 0, callBack: (Boolean) -> Unit) {
+        upbit_api.ticker(markets)
+            .subscribeOn(Schedulers.io())
+            .observeOn(AndroidSchedulers.mainThread())
+            .map { it }
+            .subscribe({
+                Log.d("lys", "ticker success > $it")
+                tickers = it as ArrayList<TickerModel.RS>
+                callBack(true)
+            }, {
+                Log.e("lys", "ticker fail > $it")
+                if (failCnt < 100) ticker(markets, failCnt + 1, callBack)
+                else callBack(false)
             })
     }
 
@@ -363,9 +602,7 @@ class HomeViewModel @Inject constructor(
                     ), OrderModel.ASK(params[0], "ask", params[1], "market")
                 )
                 else -> null
-            }?.observeOn(Schedulers.io())
-                ?.subscribeOn(Schedulers.io())
-                ?.flatMap { Observable.just(it) }
+            }?.subscribeOn(Schedulers.io())
                 ?.observeOn(AndroidSchedulers.mainThread())
                 ?.map { it }
                 ?.subscribe({
@@ -429,9 +666,7 @@ class HomeViewModel @Inject constructor(
         callBack: (OrderBookModel.RS?) -> Unit
     ) {
         upbit_api.orderBook(market)
-            .observeOn(Schedulers.io())
             .subscribeOn(Schedulers.io())
-            .flatMap { Observable.just(it) }
             .observeOn(AndroidSchedulers.mainThread())
             .map { it }
             .subscribe({
@@ -481,59 +716,6 @@ class HomeViewModel @Inject constructor(
             }
         }
     }
-
-    /**
-     * 지정한 일수만큼 코인 종가를 가져온다
-     */
-    private fun candlesDaysApi(
-        market: String,
-        count: String,
-        callBack: (List<CandlesMinutesModel.RS>?) -> Unit
-    ) {
-        upbit_api.candlesDays(market, count)
-            .observeOn(Schedulers.io())
-            .subscribeOn(Schedulers.io())
-            .flatMap { Observable.just(it) }
-            .observeOn(AndroidSchedulers.mainThread())
-            .map { it }
-            .subscribe({
-                Log.d("lys", "candlesDays success > $it")
-                callBack(it)
-//                orderBookApi(market){ data ->
-//                    if(data != null){
-//                        var temp = 0.0
-//                        it.forEach {
-//                            temp += it.trade_price.toDouble()
-//                        }
-//                        Log.d("lys","평균(${count}) > ${temp / it.size}  |  매도 호가 > ${data.orderbook_units[0].ask_price}")
-////                        Log.d("lys","평균 > ${String.format("%.4f",temp / it.size)}  |  매도 호가 > ${String.format("%.4f",data.orderbook_units[0].ask_price)}")
-//                        if(data.orderbook_units[0].ask_price.toDouble() > (temp / it.size)){
-//                            Log.d("lys","상승")
-//                        } else {
-//                            Log.d("lys","하락")
-//                        }
-//                    }
-//                }
-//                callBack(it)
-            }, {
-                Log.e("lys", "candlesDays fail > $it")
-                callBack(null)
-            })
-    }
-
-//    fun testApi(){
-//        upbit_api.orders(newToken(mContext, accessToken, Pair("state","done"),Pair("page","1")),"done","1").observeOn(Schedulers.io())
-//            .subscribeOn(Schedulers.io())
-//            .flatMap { Observable.just(it) }
-//            .observeOn(AndroidSchedulers.mainThread())
-//            .map { it }
-//            .subscribe({
-//                Log.d("lys","orders success > $it")
-//            },{
-//                Log.e("lys","orders fail > $it")
-//            })
-//    }
-
 
 }
 

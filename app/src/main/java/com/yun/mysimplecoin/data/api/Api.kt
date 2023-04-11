@@ -24,14 +24,14 @@ interface Api {
         @Path("unit") unit: String,
         @Query("market") markets: String,
         @Query("count") count: String = "200"
-    ) : Observable<List<CandlesMinutesModel.RS>>
+    ) : Observable<List<CandlesModel.RS>>
 
     // 시세 캔들 조회 - 일 캔들
     @GET("candles/days")
     fun candlesDays(
         @Query("market") markets: String,
         @Query("count") count: String
-    ) : Observable<List<CandlesMinutesModel.RS>>
+    ) : Observable<List<CandlesModel.RS>>
 
 
     // 공포 탐욕 지수 크롤링
@@ -74,4 +74,10 @@ interface Api {
     fun orderBook(
         @Query("markets") markets: String
     ) : Observable<List<OrderBookModel.RS?>>
+
+    // 현재가
+    @GET("ticker")
+    fun ticker(
+        @Query("markets") markets: String
+    ) : Observable<List<TickerModel.RS>>
 }

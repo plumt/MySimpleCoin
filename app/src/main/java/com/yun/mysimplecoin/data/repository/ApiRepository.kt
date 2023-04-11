@@ -55,4 +55,9 @@ class ApiRepository @Inject constructor(private val api: Api) {
      * 코인 호가
      */
     fun orderBook(markets: String) = api.orderBook(markets)
+
+    /**
+     * 코인 현재가
+     */
+    fun ticker(markets: String) = api.ticker(markets)
 }

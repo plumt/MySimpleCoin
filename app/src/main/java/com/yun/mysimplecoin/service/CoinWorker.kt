@@ -5,7 +5,7 @@ import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.*
 import com.yun.mysimplecoin.data.model.AllCoinsNmModel
-import com.yun.mysimplecoin.data.model.CandlesMinutesModel
+import com.yun.mysimplecoin.data.model.CandlesModel
 import com.yun.mysimplecoin.data.model.FearGreedModel
 import com.yun.mysimplecoin.data.repository.ApiRepository
 import com.yun.mysimplecoin.util.JwtUtil
@@ -38,7 +38,7 @@ class CoinWorker @AssistedInject constructor(
 
     private val accessToken = "mrPq8Ia8riJv5YQZYRQ5DhF42BYp9EXxr1ZzOhOI"
     private var allCoinsNmList = arrayListOf<AllCoinsNmModel.RS>()
-    private var candlesMinutesList = arrayListOf<CandlesMinutesModel.RS>()
+    private var candlesMinutesList = arrayListOf<CandlesModel.RS>()
     private lateinit var fearGreedList: FearGreedModel.RS
 
     private val context = mContext
@@ -69,40 +69,40 @@ class CoinWorker @AssistedInject constructor(
 
     private fun calRsiMinuteCall() {
         Log.d("lys", "--------------------------------")
-        val result = Util.calRsiMinute(candlesMinutesList)
-
-        if (result.size == 0) {
-//            title.value = ""
-            Log.d("lys", "calRsiMinute is empty")
-            myCoinsApi()
-        }
-        else {
-            // 매수 및 매도 해야할 코인이 있다
-            result.forEach {
-                Log.d("lys", "calRsiMinute > $it")
-            }
-            crawlingApi {
-                if (it) {
-                    val data = arrayListOf<Triple<String,String,String>>()
-                    result.forEach { r ->
-                        fearGreedList.pairs.forEach {  p ->
-                            if(p.code.contains(r.first)){
-                                if(p.score <= "30" && r.second == "매수"){
-                                    // 매수 코인
-                                    data.add(r)
-                                } else if(p.score >= "70" && r.second == "매도"){
-                                    // 매도 코인
-                                    data.add(r)
-                                }
-                            }
-                        }
-                    }
-                    Log.d("lys","data > $data")
-                    myCoinsApi()
-//                    title.value = ""
-                }
-            }
-        }
+//        val result = Util.calRsiMinute(candlesMinutesList)
+//
+//        if (result.size == 0) {
+////            title.value = ""
+//            Log.d("lys", "calRsiMinute is empty")
+//            myCoinsApi()
+//        }
+//        else {
+//            // 매수 및 매도 해야할 코인이 있다
+//            result.forEach {
+//                Log.d("lys", "calRsiMinute > $it")
+//            }
+//            crawlingApi {
+//                if (it) {
+//                    val data = arrayListOf<Triple<String,String,String>>()
+//                    result.forEach { r ->
+//                        fearGreedList.pairs.forEach {  p ->
+//                            if(p.code.contains(r.first)){
+//                                if(p.score <= "30" && r.second == "매수"){
+//                                    // 매수 코인
+//                                    data.add(r)
+//                                } else if(p.score >= "70" && r.second == "매도"){
+//                                    // 매도 코인
+//                                    data.add(r)
+//                                }
+//                            }
+//                        }
+//                    }
+//                    Log.d("lys","data > $data")
+//                    myCoinsApi()
+////                    title.value = ""
+//                }
+//            }
+//        }
     }
 
 

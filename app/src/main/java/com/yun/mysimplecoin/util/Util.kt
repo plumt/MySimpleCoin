@@ -2,10 +2,10 @@ package com.yun.mysimplecoin.util
 
 import com.yun.mysimplecoin.common.constants.OrderConstants.SIDE.ASK
 import com.yun.mysimplecoin.common.constants.OrderConstants.SIDE.BID
-import com.yun.mysimplecoin.data.model.CandlesMinutesModel
+import com.yun.mysimplecoin.data.model.CandlesModel
 
 object Util {
-    fun calRsiMinute(candles: ArrayList<CandlesMinutesModel.RS>): ArrayList<Triple<String, String, String>> {
+    fun calRsiMinute(candles: ArrayList<CandlesModel.RS>): Int {
         var U_cnt = 0
         var U_BEFORE = 0.0
         var U = 0.0
@@ -14,7 +14,7 @@ object Util {
         var D = 0.0
         val RSI_14 = 2 / (1.0 + 14.0)
         val RSI_RESULT = 1.0 - RSI_14
-        val result = arrayListOf<Triple<String, String, String>>()
+//        val result = arrayListOf<Triple<String, String, String>>()
 
         candles.forEachIndexed { index, minuteModel ->
             if (index > 0) {
@@ -49,12 +49,12 @@ object Util {
         val RS = U / D
         val RSI = RS / (1 + RS)
         val RSI100 = (RSI * 100).toInt()
-        if (RSI100 >= getRsiMax().toInt()) {
-            result.add(Triple(candles[0].market, BID, RSI100.toString()))
-        } else if (RSI100 <= getRsiMin().toInt()) {
-            result.add(Triple(candles[0].market, ASK, RSI100.toString()))
-        }
-        return result
+//        if (RSI100 >= getRsiMax().toInt()) {
+//            result.add(Triple(candles[0].market, BID, RSI100.toString()))
+//        } else if (RSI100 <= getRsiMin().toInt()) {
+//            result.add(Triple(candles[0].market, ASK, RSI100.toString()))
+//        }
+        return RSI100
     }
 
     private fun getRsiMin(): String {
