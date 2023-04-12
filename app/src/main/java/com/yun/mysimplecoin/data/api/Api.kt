@@ -39,13 +39,19 @@ interface Api {
 //    @GET("fearindex")
     fun crawling() : Observable<FearGreedModel.RS>
 
-    // 주문 리스트를 조회
+    // 주문 대기 리스트 조회
     @GET("orders")
     fun orders(
         @Header("Authorization") Authorization: String,
-//        @Query("market") market: String,
-        @Query("state") state: String,
-        @Query("page") page: String
+        @Query("state") state: String
+    ) : Observable<List<OrderModel.RS>>
+
+
+    @GET("orders")
+    fun orders(
+        @Header("Authorization") Authorization: String,
+        @Query("market") market: String,
+        @Query("state") state: String
     ) : Observable<List<OrderModel.RS>>
 
     // 주문 취소
@@ -68,6 +74,14 @@ interface Api {
         @Header("Authorization") Authorization: String,
         @Body rq: OrderModel.ASK
     ) : Observable<OrderModel.RS>
+
+//    // 거래내역
+//    @GET("orders")
+//    fun orders(
+//        @Header("Authorization") Authorization: String,
+//        @Body rq: OrderModel.ORDERS
+//    ) : Observable<OrderModel.RS>
+
 
     // 호가 정보
     @GET("orderbook")

@@ -34,7 +34,7 @@ class ApiRepository @Inject constructor(private val api: Api) {
     /**
      * 대기 목록
      */
-    fun orders(authorization: String, state: String, page: String) = api.orders(authorization,state, page)
+    fun orders(authorization: String, state: String) = api.orders(authorization,state)
 
     /**
      * 예약 취소
@@ -60,4 +60,9 @@ class ApiRepository @Inject constructor(private val api: Api) {
      * 코인 현재가
      */
     fun ticker(markets: String) = api.ticker(markets)
+
+    /**
+     * 코인 거래 내역
+     */
+    fun orders(authorization: String, market: String, state: String) = api.orders(authorization, market, state)
 }
