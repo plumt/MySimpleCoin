@@ -15,19 +15,19 @@ class HomeFragment : BaseFragment<FragmentHomeBinding, HomeViewModel>() {
     override fun getResourceId(): Int = R.layout.fragment_home
     override fun isOnBackEvent(): Boolean = false
     override fun setVariable(): Int = BR.home
-    override fun onBackEvent() { }
+    override fun onBackEvent() {}
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
         binding.btnApiStart.setOnClickListener {
-            viewModel.startWork()
+//            viewModel.start()
+            sharedViewModel.startService()
         }
 
         binding.btnApiStop.setOnClickListener {
-            viewModel.stopWork()
+//            viewModel.stopWork()
+            sharedViewModel.stopService()
         }
     }
-
-
 }

@@ -40,6 +40,8 @@ class HomeViewModel @Inject constructor(
      */
     var isRunning = false
 
+    var stop = false
+
     /**
      * 보유 코인 리스트
      */
@@ -92,7 +94,8 @@ class HomeViewModel @Inject constructor(
     private var cancelCoins = ArrayList<OrderModel.RS>()
 
     init {
-        startWork()
+//        startWork()
+
     }
 
     /**
@@ -121,14 +124,19 @@ class HomeViewModel @Inject constructor(
         }, 2000)
     }
 
+    fun start(){
+        stop = false
+        startWork()
+    }
+
     /**
      * 프로세스 시작
      * 1. 매수 및 매도 대기중인 코인들의 정보를 가져오는 로직 시작
      * 2. 이후 모든 로직이 성공하면 isSuccess 가 true, 중간에 한 번이라도 오류가 발생하면 false
      * 3. isSuccess 가 true > 지수를 계산하여 매수 및 매도 로직 시작
      */
-    fun startWork() {
-        if (title.value != "") return
+    private fun startWork() {
+        if (title.value != "" || stop) return
         Log.d("lys", "ㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡ")
         clearData()
         title.postValue("api 가져오는 중...")
@@ -139,8 +147,12 @@ class HomeViewModel @Inject constructor(
                 startCalculation()
             } else {
                 // 중간에 뭔가 오류가 발생함 > 초기화하고 다시 작업
-                reStartWork()
-                Log.e("lys", "중간에 뭔가 오류가 있었음. 초기화 후 재진행")
+                if (isRunning) {
+                    Log.e("lys", "중간에 뭔가 오류가 있었음. 초기화 후 재진행")
+                    reStartWork()
+                } else {
+                    Log.d("lys", "stop end")
+                }
             }
         }
     }
@@ -150,6 +162,7 @@ class HomeViewModel @Inject constructor(
      */
     fun stopWork() {
         isRunning = false
+        stop = true
         title.postValue("")
     }
 
@@ -376,6 +389,7 @@ class HomeViewModel @Inject constructor(
                 bidCoins.add(askCoins[index])
                 sellCoins(index + 1, callBack)
             } else {
+                Log.d("lys", "balance > ${balance}")
                 orders("ask", askCoins[index], balance) { success ->
                     if (success && isRunning) sellCoins(index + 1, callBack)
                     else callBack(false)
@@ -660,6 +674,9 @@ class HomeViewModel @Inject constructor(
         failCnt: Int = 0,
         callBack: (Boolean) -> Unit
     ) {
+        if ("ask" == type) {
+            Log.d("lys", "params[0]>${params[0]}  params[1] > ${params[1]}")
+        }
         upbit_api.run {
             when (type) {
                 "wait" ->
@@ -679,9 +696,18 @@ class HomeViewModel @Inject constructor(
                         mContext, accessToken,
                         Pair("market", params[0]),
                         Pair("ord_type", "market"),
-                        Pair("volume", params[1]),
-                        Pair("side", "ask")
+                        Pair("side", "ask"),
+                        Pair("volume", params[1])
                     ), OrderModel.ASK(params[0], "ask", params[1], "market")
+                )
+                "bid" -> orders(
+                    newToken(
+                        mContext, accessToken,
+                        Pair("market",params[0]),
+                        Pair("ord_type","price"),
+                        Pair("price",params[1]),
+                        Pair("side","bid")
+                    ), OrderModel.BID(params[0],"bid",params[1],"price")
                 )
                 "done" -> orders(
                     newToken(
