@@ -48,24 +48,24 @@ class CoinWorker @AssistedInject constructor(
     override fun doWork(): Result {
         Log.d("lys","doWork")
         if(!isRunning){
-            myCoinsApi()
+//            myCoinsApi()
         }
         return Result.success()
     }
 
-    private fun allCoinsNmCall(){
-        allCoinsNmApi {
-            if (it) {
-                var cnt = 0
-                allCoinsNmList.forEach {
-                    candlesMinutesApi("5", it.market) {
-                        if (it) cnt++
-                        if (cnt == allCoinsNmList.size) calRsiMinuteCall()
-                    }
-                }
-            }
-        }
-    }
+//    private fun allCoinsNmCall(){
+//        allCoinsNmApi {
+//            if (it) {
+//                var cnt = 0
+//                allCoinsNmList.forEach {
+//                    candlesMinutesApi("5", it.market) {
+//                        if (it) cnt++
+//                        if (cnt == allCoinsNmList.size) calRsiMinuteCall()
+//                    }
+//                }
+//            }
+//        }
+//    }
 
     private fun calRsiMinuteCall() {
         Log.d("lys", "--------------------------------")
@@ -106,84 +106,84 @@ class CoinWorker @AssistedInject constructor(
     }
 
 
-    private fun allCoinsNmApi(callBack: (Boolean) -> Unit) {
-        upbit_api.allCoinsNm().observeOn(Schedulers.io())
-            .subscribeOn(Schedulers.io())
-            .flatMap { Observable.just(it) }
-            .observeOn(AndroidSchedulers.mainThread())
-            .map { it }
-            .subscribe({
-                Log.d("lys", "allCoinsNm success $it")
-                allCoinsNmList = arrayListOf()
-                it.forEach { data ->
-                    if (data.market_warning == "NONE" && data.market.contains("KRW-")) {
-                        allCoinsNmList.add(data)
-                    }
-                }
-                callBack(true)
-            }, {
-                Log.e("lys", "allCoinsNm fail > $it")
-                allCoinsNmApi(callBack)
-            })
-    }
+//    private fun allCoinsNmApi(callBack: (Boolean) -> Unit) {
+//        upbit_api.allCoinsNm().observeOn(Schedulers.io())
+//            .subscribeOn(Schedulers.io())
+//            .flatMap { Observable.just(it) }
+//            .observeOn(AndroidSchedulers.mainThread())
+//            .map { it }
+//            .subscribe({
+//                Log.d("lys", "allCoinsNm success $it")
+//                allCoinsNmList = arrayListOf()
+//                it.forEach { data ->
+//                    if (data.market_warning == "NONE" && data.market.contains("KRW-")) {
+//                        allCoinsNmList.add(data)
+//                    }
+//                }
+//                callBack(true)
+//            }, {
+//                Log.e("lys", "allCoinsNm fail > $it")
+//                allCoinsNmApi(callBack)
+//            })
+//    }
 
-    private fun candlesMinutesApi(
-        unit: String,
-        market: String,
-        callBack: (Boolean) -> Unit
-    ) {
-        upbit_api.candlesMinutes(unit, market).observeOn(Schedulers.io())
-            .subscribeOn(Schedulers.io())
-            .flatMap { Observable.just(it) }
-            .observeOn(AndroidSchedulers.mainThread())
-            .map { it }
-            .subscribe({
-                candlesMinutesList = arrayListOf()
-                Log.d("lys", "candlesMinutes success > $it")
-                candlesMinutesList.addAll(it)
-                callBack(true)
-            }, {
-//                Log.e("lys", "candlesMinutes fail > $it")
-                candlesMinutesApi(unit, market, callBack)
-            })
-    }
+//    private fun candlesMinutesApi(
+//        unit: String,
+//        market: String,
+//        callBack: (Boolean) -> Unit
+//    ) {
+//        upbit_api.candlesMinutes(unit, market).observeOn(Schedulers.io())
+//            .subscribeOn(Schedulers.io())
+//            .flatMap { Observable.just(it) }
+//            .observeOn(AndroidSchedulers.mainThread())
+//            .map { it }
+//            .subscribe({
+//                candlesMinutesList = arrayListOf()
+//                Log.d("lys", "candlesMinutes success > $it")
+//                candlesMinutesList.addAll(it)
+//                callBack(true)
+//            }, {
+////                Log.e("lys", "candlesMinutes fail > $it")
+//                candlesMinutesApi(unit, market, callBack)
+//            })
+//    }
 
-    private fun crawlingApi(callBack: (Boolean) -> Unit) {
-        crawling_api.crawling().observeOn(Schedulers.io())
-            .subscribeOn(Schedulers.io())
-            .flatMap { Observable.just(it) }
-            .observeOn(AndroidSchedulers.mainThread())
-            .map { it }
-            .subscribe({
-                fearGreedList = it
-                Log.d("lys", "crawling success > $it")
-                callBack(true)
-            }, {
-                Log.e("lys", "crawling fail > $it")
-                crawlingApi(callBack)
-            })
-    }
+//    private fun crawlingApi(callBack: (Boolean) -> Unit) {
+//        crawling_api.crawling().observeOn(Schedulers.io())
+//            .subscribeOn(Schedulers.io())
+//            .flatMap { Observable.just(it) }
+//            .observeOn(AndroidSchedulers.mainThread())
+//            .map { it }
+//            .subscribe({
+//                fearGreedList = it
+//                Log.d("lys", "crawling success > $it")
+//                callBack(true)
+//            }, {
+//                Log.e("lys", "crawling fail > $it")
+//                crawlingApi(callBack)
+//            })
+//    }
 
-    fun myCoinsApi(isFail: Boolean = false) {
-        if(sharedPreferences.getString(context,"isRunning") == "stop") {
-            isRunning = false
-            return
-        }
-        isRunning = true
-//        if(title.value != "" && !isFail) return
-//        title.value = "api 가져오는 중..."
-        upbit_api.myCoins(JwtUtil.newToken(context, accessToken)).observeOn(Schedulers.io())
-            .subscribeOn(Schedulers.io())
-            .flatMap { Observable.just(it) }
-            .observeOn(AndroidSchedulers.mainThread())
-            .map { it }.subscribe({
-                Log.d("lys", "myCoins success > $it")
-                allCoinsNmCall()
-            }, {
-                Log.e("lys", "myCoins fail > $it")
-                myCoinsApi(true)
-            })
-    }
+//    fun myCoinsApi(isFail: Boolean = false) {
+//        if(sharedPreferences.getString(context,"isRunning") == "stop") {
+//            isRunning = false
+//            return
+//        }
+//        isRunning = true
+////        if(title.value != "" && !isFail) return
+////        title.value = "api 가져오는 중..."
+//        upbit_api.myCoins(JwtUtil.newToken(context, accessToken)).observeOn(Schedulers.io())
+//            .subscribeOn(Schedulers.io())
+//            .flatMap { Observable.just(it) }
+//            .observeOn(AndroidSchedulers.mainThread())
+//            .map { it }.subscribe({
+//                Log.d("lys", "myCoins success > $it")
+//                allCoinsNmCall()
+//            }, {
+//                Log.e("lys", "myCoins fail > $it")
+//                myCoinsApi(true)
+//            })
+//    }
 
 }
 

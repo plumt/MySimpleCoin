@@ -7,9 +7,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.Binder
-import android.os.Handler
 import android.os.IBinder
-import android.os.Looper
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.yun.mysimplecoin.R
@@ -19,8 +17,8 @@ import com.yun.mysimplecoin.ui.main.MainActivity
 import com.yun.mysimplecoin.util.JwtUtil
 import com.yun.mysimplecoin.util.Util
 import dagger.hilt.android.AndroidEntryPoint
-import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers
-import io.reactivex.rxjava3.schedulers.Schedulers
+import kotlinx.coroutines.*
+import retrofit2.Response
 import java.text.DecimalFormat
 import java.time.Duration
 import java.time.LocalDateTime
@@ -106,12 +104,12 @@ class CoinService : Service() {
     /**
      * 코인 거래 내역 > done
      */
-    private var doneCoins = ArrayList<OrderModel.RS>()
+    private var doneCoins: ArrayList<OrderModel.RS>? = arrayListOf()
 
     /**
      * 코인 거래 내역 > cancel
      */
-    private var cancelCoins = ArrayList<OrderModel.RS>()
+    private var cancelCoins: ArrayList<OrderModel.RS>? = arrayListOf()
 
     private fun createNotificationChannel(
         context: Context,
@@ -167,18 +165,6 @@ class CoinService : Service() {
         settingNotification()
     }
 
-
-
-
-
-
-
-
-
-
-
-
-
     /**
      * 배열 데이터 초기화
      */
@@ -198,15 +184,18 @@ class CoinService : Service() {
      * 로직 종료 후 재시작
      */
     private fun reStartWork() {
-        Handler(Looper.myLooper()!!).postDelayed({
-            isRunning = false
-            startWork()
-        }, 2000)
+        isRunning = false
+        CoroutineScope(Dispatchers.IO).launch {
+            delay(2000)
+            runCoinTrading()
+        }
     }
 
-    fun start(){
+    fun start() {
         stop = false
-        startWork()
+        CoroutineScope(Dispatchers.IO).launch {
+            runCoinTrading()
+        }
     }
 
     /**
@@ -215,23 +204,20 @@ class CoinService : Service() {
      * 2. 이후 모든 로직이 성공하면 isSuccess 가 true, 중간에 한 번이라도 오류가 발생하면 false
      * 3. isSuccess 가 true > 지수를 계산하여 매수 및 매도 로직 시작
      */
-    private fun startWork() {
+    private suspend fun runCoinTrading() {
         if (stop) return
         Log.d("lys", "ㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡ")
         clearData()
         isRunning = true
-        myWaitCoins { success ->
-            if (success && isRunning) {
-                // 성공
-                startCalculation()
+        if (myWaitCoins() && startCalculation()) {
+            Log.d("lys", "success end")
+            reStartWork()
+        } else {
+            if (isRunning) {
+                Log.e("lys", "중간에 뭔가 오류가 있었음. 초기화 후 재진행")
+                reStartWork()
             } else {
-                // 중간에 뭔가 오류가 발생함 > 초기화하고 다시 작업
-                if (isRunning) {
-                    Log.e("lys", "중간에 뭔가 오류가 있었음. 초기화 후 재진행")
-                    reStartWork()
-                } else {
-                    Log.d("lys", "stop end")
-                }
+                Log.d("lys", "stop end")
             }
         }
     }
@@ -247,17 +233,13 @@ class CoinService : Service() {
     /**
      * 필요한 정보를 모두 가져왔으면 실제 지수를 바탕으로 매수 및 매도 로직 시작
      */
-    private fun startCalculation() {
+    private suspend fun startCalculation(): Boolean {
         coinIndexList.forEach { coin ->
             fearGreedList.pairs.find { it.code.contains(coin.market) }?.let { pair ->
                 coin.score = pair.score
             }
         }
-        checkAskBid { success ->
-            if (success) Log.d("lys", "success end")
-            else Log.e("lys", "fail end")
-            reStartWork()
-        }
+        return checkAskBid()
     }
 
     /**
@@ -265,12 +247,8 @@ class CoinService : Service() {
      * 1. 매수 및 매도 대기중인 코인의 정보를 가져오는 api 호출
      * 2. 성공적으로 가져오면 대기 중인 코인들의 주문 취소하는 로직 시작
      */
-    private fun myWaitCoins(callBack: (Boolean) -> Unit) {
-        orders("wait", "wait") { success ->
-            Log.d("lys", "myWaitCoins is done")
-            if (success && isRunning) cancelCoinsCall(callBack = callBack)
-            else callBack(false)
-        }
+    private suspend fun myWaitCoins() = isRunning && withContext(Dispatchers.IO) {
+        ordersWait() && cancelCoinsCall()
     }
 
     /**
@@ -278,15 +256,8 @@ class CoinService : Service() {
      * 1. 매수 및 매도 대기중인 코인의 주문 취소하는 api 호출
      * 2. 성공적으로 완수하면 보유 중인 코인들의 정보를 가져오는 로직 시작
      */
-    private fun cancelCoinsCall(index: Int = 0, callBack: (Boolean) -> Unit) {
-        if (index == waitCoins.size) myCoinsCall(callBack)
-        else {
-            orders("cancel", waitCoins[index].uuid) { success ->
-                Log.d("lys", "cancelCoinsCall is done")
-                if (success && isRunning) cancelCoinsCall(index + 1, callBack)
-                else callBack(false)
-            }
-        }
+    private suspend fun cancelCoinsCall() = isRunning && withContext(Dispatchers.IO) {
+        ordersCancel() && myCoinsCall()
     }
 
     /**
@@ -294,12 +265,8 @@ class CoinService : Service() {
      * 1. 보유 중인 코인의 정보를 가져오는 api 호출
      * 2. 성공적으로 가져오면 모든 코인들의 정보를 가져오는 로직 시작
      */
-    private fun myCoinsCall(callBack: (Boolean) -> Unit) {
-        myCoinsApi { success ->
-            Log.d("lys", "myCoinsCall is done")
-            if (success && isRunning) allCoinsNmCall(callBack)
-            else callBack(false)
-        }
+    private suspend fun myCoinsCall() = isRunning && withContext(Dispatchers.IO) {
+        myCoinsApi() && allCoinsNmCall()
     }
 
     /**
@@ -307,12 +274,8 @@ class CoinService : Service() {
      * 1. 모든 코인의 정보를 가져오는 api 호출 > 거래 재화가 KRW 이며, 주의가 아닌 항목에 대해서만
      * 2. 성공적으로 가져오면 공포/탐욕 지수 정보 가져오는 로직 시작
      */
-    private fun allCoinsNmCall(callBack: (Boolean) -> Unit) {
-        allCoinsNmApi { success ->
-            Log.d("lys", "allCoinsNmCall is done")
-            if (success && isRunning) crawlingCall(callBack)
-            else callBack(false)
-        }
+    private suspend fun allCoinsNmCall() = isRunning && withContext(Dispatchers.IO) {
+        allCoinsNmApi() && crawlingCall()
     }
 
     /**
@@ -320,12 +283,8 @@ class CoinService : Service() {
      * 1. 공포/탐욕 지수 정보를 가져오는 api 호출
      * 2. 성공적으로 가져오면 업비트 코인 목록들에 대해 각각 5분 간격의 캔들 데이터를 조회하는 로직 시작
      */
-    private fun crawlingCall(callBack: (Boolean) -> Unit) {
-        crawlingApi { success ->
-            Log.d("lys", "crawlingCall is done")
-            if (success && isRunning) candleMinutesCall(callBack = callBack)
-            else callBack(false)
-        }
+    private suspend fun crawlingCall() = isRunning && withContext(Dispatchers.IO) {
+        crawlingApi() && candleMinutesCall()
     }
 
     /**
@@ -333,16 +292,8 @@ class CoinService : Service() {
      * 1. 코인들의 5분 간격 캔들 데이터를 조회하는 api 호출
      * 2. 성공적으로 모두 가져오면, 1일 간격 캔들 데이터를 조회하는 로직 시작
      */
-    private fun candleMinutesCall(index: Int = 0, callBack: (Boolean) -> Unit) {
-        if (index == allCoinsNmList.size) {
-            Log.d("lys", "candleMinutesCall done")
-            candleDaysCall(callBack = callBack) // 마지막 코인까지 api 전송했으면 다음 로직
-        } else {
-            candlesMinutesApi("5", allCoinsNmList[index].market) { success ->
-                if (success && isRunning) candleMinutesCall(index + 1, callBack)
-                else callBack(false)
-            }
-        }
+    private suspend fun candleMinutesCall() = isRunning && withContext(Dispatchers.IO) {
+        candlesMinutesApi("5") && candleDaysCall()
     }
 
     /**
@@ -350,16 +301,8 @@ class CoinService : Service() {
      * 1. 코인들의 1일 간격 캔들 데이터를 조회하는 api 호출
      * 2. 성공적으로 모두 가져오면,
      */
-    private fun candleDaysCall(index: Int = 0, callBack: (Boolean) -> Unit) {
-        if (index == allCoinsNmList.size) {
-            Log.d("lys", "candleDaysCall done")
-            callBack(true) // 마지막 코인까지 api 전송했으면 callBack
-        } else {
-            candlesDaysApi(allCoinsNmList[index].market, "100") { success ->
-                if (success && isRunning) candleDaysCall(index + 1, callBack)
-                else callBack(false)
-            }
-        }
+    private suspend fun candleDaysCall() = isRunning && withContext(Dispatchers.IO) {
+        candlesDaysApi("100")
     }
 
     /**
@@ -388,7 +331,7 @@ class CoinService : Service() {
     /**
      * 지수를 기반으로 매수 및 매도 계산
      */
-    private fun checkAskBid(callBack: (Boolean) -> Unit) {
+    private suspend fun checkAskBid(): Boolean = withContext(Dispatchers.IO) {
         // case 1. 이동 평균선이 상승 추세, MACD 가 0을 상향 돌파, 볼린저 밴드의 상한선을 돌파 "RSI 70 이상" > 매도
         // case 2. 이동 평균선이 하락 추세, MACD 가 0을 하향 돌파, 볼린저 밴드의 하한선을 돌파 "RSI 30 이하" > 매수
         // case 3. 이동 평균선 상향 돌파, MACD 신호선 상향, 볼린저 밴드 상한선 > 매수
@@ -396,50 +339,52 @@ class CoinService : Service() {
         // case 5. RSI 70이상, 탐욕 지수 > 매도
         // case 6. RSI 30이하, 공포 지수 > 매수
         //TODO 보유한 코인의 손익을 계산해서 매도 영역에 넣어야 함 > 수치는 추후에 생각
-        ticker(tickerParams()) { success ->
-            if (success) {
-                Log.d("lys", "#####################")
-                coinIndexList.forEachIndexed { index, coin ->
-                    val result = when (val case = calculationAskBid(index, coin)) {
-                        2, 3, 6 -> Pair("매수", case)
-                        1, 4, 5 -> Pair("매도", case)
-                        else -> null
+        if (!ticker(tickerParams())) return@withContext false
+        val r = coinIndexList.withIndex().all { (index, coin) ->
+            if (!isRunning) return@withContext false
+            when (val case = calculationAskBid(index, coin)) {
+                2, 3, 6 -> Pair("매수", case)
+                1, 4, 5 -> Pair("매도", case)
+                else -> null
+            }?.let { (askBid, case) ->
+                when (askBid) {
+                    "매수" -> {
+                        Log.d(
+                            "lys",
+                            "${coin.market}(${allCoinsNmList[index].korean_name}) > 현재가 ${tickers[index].trade_price} > 매수($case)"
+                        )
+                        bidCoins.add(coin.market)
                     }
-                    result?.let { (askBid, case) ->
-                        if (askBid == "매수") {
-                            bidCoins.add(coin.market)
-                            Log.d(
-                                "lys",
-                                "${coin.market}(${allCoinsNmList[index].korean_name}) > 현재가 ${tickers[index].trade_price} > 매수($case)"
-                            )
-                        } else if (askBid == "매도") {
-                            askCheck(coin.market)
-                            var holdings = ""
-                            val myCoin = myCoins.find { ("KRW-" + it.currency) == coin.market }
-                            if (myCoin != null) {
-                                val nowValue =
-                                    myCoin.balance.toDouble() * tickers[index].trade_price.toDouble()
-                                val myValue =
-                                    myCoin.balance.toDouble() * myCoin.avg_buy_price.toDouble()
-                                val profitLoss = ((nowValue - myValue) / myValue) * 100
-                                holdings += "> 보유금액(${
-                                    String.format(
-                                        "%.3f",
-                                        nowValue
-                                    )
-                                } 원) 손익(${String.format("%.3f", profitLoss)} %)"
-                            }
-                            Log.d(
-                                "lys",
-                                "${coin.market}(${allCoinsNmList[index].korean_name}) > 현재가 ${tickers[index].trade_price} > 매도($case) $holdings"
-                            )
+                    "매도" -> {
+                        askCheck(coin.market)
+                        val myCoin = myCoins.find { ("KRW-" + it.currency) == coin.market }
+                        var holdings = ""
+                        if (myCoin != null) {
+                            val nowValue =
+                                myCoin.balance.toDouble() * tickers[index].trade_price.toDouble()
+                            val myValue =
+                                myCoin.balance.toDouble() * myCoin.avg_buy_price.toDouble()
+                            val profitLoss = ((nowValue - myValue) / myValue) * 100
+                            holdings += "> 보유금액(${
+                                String.format(
+                                    "%.3f",
+                                    nowValue
+                                )
+                            } 원) 손익(${String.format("%.3f", profitLoss)} %)"
                         }
+                        Log.d(
+                            "lys",
+                            "${coin.market}(${allCoinsNmList[index].korean_name}) > 현재가 ${tickers[index].trade_price} > 매도($case) $holdings"
+                        )
+
                     }
+                    else -> {}
                 }
-                Log.d("lys", "askCoins > ${askCoins}")
-                sellCoins(callBack = callBack)
-            } else callBack(false)
+            }
+            true
         }
+        Log.d("lys", "askCoins > ${askCoins}")
+        r && sellCoins() && buyCoins()
     }
 
     /**
@@ -454,23 +399,22 @@ class CoinService : Service() {
     /**
      * 코인 매도 로직
      */
-    private fun sellCoins(index: Int = 0, callBack: (Boolean) -> Unit) {
-        if (index == askCoins.size) buyCoins(callBack = callBack)
-        else {
+    private suspend fun sellCoins(): Boolean = withContext(Dispatchers.IO) {
+        askCoins.all { coin ->
+            if (!isRunning) return@withContext false
             val balance =
-                myCoins.find { ("KRW-" + it.currency) == askCoins[index] }?.balance ?: "0.0"
-            val price = tickers.find { (it.market == askCoins[index]) }?.trade_price ?: "0.0"
-            val money = String.format("%.2f", price.toDouble() * balance.toDouble()).toDouble()
+                myCoins.find { ("KRW-" + it.currency) == coin }?.balance ?: return@withContext true
+            val price =
+                tickers.find { (it.market == coin) }?.trade_price?.toDoubleOrNull()
+                    ?: return@withContext true
+            val money = String.format("%.2f", price * balance.toDouble()).toDouble()
             if (money < 5000.0) {
-                Log.d("lys", "최소 판매 금액이 안되서 매수 목록에 최소 금액으로 추가해야 할듯.. > ${askCoins[index]}")
-                bidCoins.add(askCoins[index])
-                sellCoins(index + 1, callBack)
+                Log.d("lys", "최소 판매 금액이 안되서 매수 목록에 최소 금액으로 추가해야 할듯.. > ${coin}")
+                bidCoins.add(coin)
+                true
             } else {
-                Log.d("lys", "balance > ${balance}")
-                orders("ask", askCoins[index], balance) { success ->
-                    if (success && isRunning) sellCoins(index + 1, callBack)
-                    else callBack(false)
-                }
+                Log.d("lys", "balance > $balance")
+                ordersAsk(coin, balance)
             }
         }
     }
@@ -478,33 +422,20 @@ class CoinService : Service() {
     /**
      * 코인 매수 로직
      */
-    private fun buyCoins(index: Int = 0, callBack: (Boolean) -> Unit) {
-        if (index == bidCoins.size) callBack(true)
-        else {
-            val money = myCoins.find { it.currency == "KRW" }?.balance?.toDouble() ?: 0.0
-            if (money < 5000.0) {
-                Log.d("lys", "보유 금액 부족.. > ${askCoins[index]}")
-                buyCoins(index + 1, callBack)
-            } else {
-                bidCheck(askCoins[index]) { result ->
-                    when (result) {
-                        -1 -> callBack(false)
-                        0 -> {
-                            Log.d("lys", "최근 12시간 이내 매수 이력이 있어서 통과")
-                            buyCoins(index + 1, callBack)
-                        }
-                        1 -> {
-                            orders(
-                                "bid",
-                                askCoins[index],
-                                if (money > 10000.0) "10000" else "5000"
-                            ) { success ->
-                                if (success) buyCoins(index + 1, callBack)
-                                else callBack(false)
-                            }
-                        }
-                    }
+    private suspend fun buyCoins(): Boolean = withContext(Dispatchers.IO) {
+        bidCoins.all { coin ->
+            if (!isRunning) return@withContext false
+            val money = myCoins.firstOrNull { it.currency == "KRW" }?.balance?.toDouble()
+                ?: return@all true
+            if (money < 5000.0) return@all true
+            when (bidCheck(coin)) {
+                -1 -> return@all false
+                0 -> {
+                    Log.d("lys", "최근 12시간 이내 매수 이력이 있어서 통과")
+                    true
                 }
+                1 -> orderBid(coin, if (money > 10000.0) "10000" else "5000")
+                else -> false
             }
         }
     }
@@ -512,18 +443,12 @@ class CoinService : Service() {
     /**
      * 최근에 거래한 코인 목록 Call
      */
-    private fun bidCheck(market: String, callBack: (Int) -> Unit) {
-        orders("done", market, "done") { done ->
-            if (done) {
-                orders("done", market, "cancel") { cancel ->
-                    if (cancel) {
-                        // 최근 12시간 이내에 거래를 함
-                        if (checkCoins(doneCoins) || checkCoins(cancelCoins)) callBack(0)
-                        else callBack(1)
-                    } else callBack(-1)
-                }
-            } else callBack(-1)
-        }
+    private suspend fun bidCheck(market: String): Int {
+        return if (ordersDone(market)) {
+            // 최근 12시간 이내에 거래를 함
+            if (checkCoins(doneCoins!!) || checkCoins(cancelCoins!!)) 0
+            else 1
+        } else -1
     }
 
     /**
@@ -547,7 +472,6 @@ class CoinService : Service() {
         return isAlready
     }
 
-
     /**
      * ticker parameter
      * 검색 가능한 모든 코인들의 이름을 리턴
@@ -558,283 +482,166 @@ class CoinService : Service() {
     /**
      * 보유 중인 코인을 가져오는 api
      */
-    private fun myCoinsApi(failCnt: Int = 0, callBack: (Boolean) -> Unit) {
-        upbit_api.myCoins(JwtUtil.newToken(applicationContext, accessToken))
-            .subscribeOn(Schedulers.io())
-            .observeOn(AndroidSchedulers.mainThread())
-            .map { it }.subscribe({
-                Log.d("lys", "myCoins success > $it")
-                myCoins = arrayListOf()
-                myCoins.addAll(it)
-                callBack(true)
-            }, {
-                if (failCnt < 100) myCoinsApi(failCnt + 1, callBack)
-                else callBack(false); Log.e("lys", "myCoins fail > $it")
-            })
+    private suspend fun myCoinsApi(): Boolean {
+        return callApi(upbit_api.myCoins(token()))?.run {
+            myCoins = this as ArrayList<MyCoins.RS>
+            true
+        } ?: false
     }
 
     /**
      * 업비트 코인 이름들 가져오는 api
      */
-    private fun allCoinsNmApi(failCnt: Int = 0, callBack: (Boolean) -> Unit) {
-        upbit_api.allCoinsNm()
-            .subscribeOn(Schedulers.io())
-            .observeOn(AndroidSchedulers.mainThread())
-            .map { it }
-            .subscribe({
-                allCoinsNmList = arrayListOf()
-                it.forEach { data ->
-                    if (data.market_warning == "NONE" && data.market.contains("KRW-")) {
-                        allCoinsNmList.add(data)
-                    }
-                }
-                callBack(true)
-            }, {
-                if (failCnt < 100) allCoinsNmApi(failCnt + 1, callBack)
-                else {
-                    Log.e("lys", "allCoinsNm fail > $it")
-                    callBack(false)
-                }
-
-            })
+    private suspend fun allCoinsNmApi(): Boolean {
+        allCoinsNmList = (callApi(upbit_api.allCoinsNm())?.filter {
+            it.market_warning == "NONE" && it.market.contains("KRW-")
+        }?.toMutableList() as? ArrayList<AllCoinsNmModel.RS>) ?: return false
+        return true
     }
 
     /**
      * 5분 간격으로 코인의 호가를 불러오는 api
      */
-    private fun candlesMinutesApi(
-        unit: String,
-        market: String,
-        failCnt: Int = 0,
-        callBack: (Boolean) -> Unit
-    ) {
-        upbit_api.candlesMinutes(unit, market)
-            .subscribeOn(Schedulers.io())
-            .observeOn(AndroidSchedulers.mainThread())
-            .map { it }
-            .subscribe({
-                coinIndexList.add(
-                    CoinIndexModel.data(
-                        market,
-                        rsi = CoinIndexModel.data.Rsi(
-                            Util.calRsiMinute(it as ArrayList<CandlesModel.RS>).toString())
+    private suspend fun candlesMinutesApi(unit: String): Boolean = withContext(Dispatchers.IO) {
+        allCoinsNmList.all {
+            if (!isRunning) return@withContext false
+            val result =
+                callApi(upbit_api.candlesMinutes(unit, it.market)) ?: return@all false
+            coinIndexList.add(
+                CoinIndexModel.data(
+                    it.market,
+                    rsi = CoinIndexModel.data.Rsi(
+                        Util.calRsiMinute(result as ArrayList<CandlesModel.RS>).toString()
                     )
                 )
-                callBack(true)
-            }, {
-                if (failCnt < 100) candlesMinutesApi(unit, market, failCnt + 1, callBack)
-                else {
-                    Log.e("lys", "candlesMinutes fail($failCnt) > $it")
-                    callBack(false)
-                }
-            })
+            )
+            delay(100L) // 0.1초 딜레이
+            true
+        }
     }
 
     /**
      * 지정한 일수만큼 코인 종가를 가져온다
      */
-    private fun candlesDaysApi(
-        market: String,
-        count: String,
-        failCnt: Int = 0,
-        callBack: (Boolean) -> Unit
-    ) {
-        upbit_api.candlesDays(market, count)
-            .subscribeOn(Schedulers.io())
-            .observeOn(AndroidSchedulers.mainThread())
-            .map { it }
-            .subscribe({
-//                Log.d("lys", "candlesDays success > $it")
+    private suspend fun candlesDaysApi(count: String): Boolean = withContext(Dispatchers.IO) {
+        allCoinsNmList.all { coin ->
+            if (!isRunning) return@withContext false
+            val result =
+                callApi(upbit_api.candlesDays(coin.market, count)) ?: return@all false
+            val middleList = result.take(20).map { it.trade_price.toDouble() }
+            val fastAvg = result.take(10).map { it.trade_price.toDouble() }.average() // 단기
+            val middleAvg = result.take(20).map { it.trade_price.toDouble() }.average() // 중심
+            val slowAvg = result.take(50).map { it.trade_price.toDouble() }.average() // 장기
+            val standardDeviation = Util.getStandardDeviation(middleList)
+            val upper = middleAvg + (standardDeviation * 2)
+            val lower = middleAvg - (standardDeviation * 2)
+            val coinIndex =
+                coinIndexList.find { coin.market == it.market } ?: return@all false
+            coinIndex.mv = CoinIndexModel.data.Mv(DecimalFormat("#.###").format(middleAvg))
+            coinIndex.macd = CoinIndexModel.data.Macd(
+                DecimalFormat("#.###").format(fastAvg),
+                DecimalFormat("#.###").format(slowAvg)
+            )
+            coinIndex.bb = CoinIndexModel.data.Bb(
+                DecimalFormat("#.###").format(upper),
+                DecimalFormat("#.###").format(lower)
+            )
+            delay(100L) // 0.1초 딜레이
+            true
 
-
-                var slow = 0.0 // 장기
-                var fast = 0.0 // 단기
-                var middle = 0.0 // 중심
-
-                var slowCnt = 0
-                var fastCnt = 0
-                var middleCnt = 0
-
-                val middleList = ArrayList<Double>()
-
-                it.forEachIndexed { index, coin ->
-                    if (index < 10) {
-                        fast += coin.trade_price.toDouble()
-                        fastCnt++
-                    }
-                    if (index < 20) {
-                        middle += coin.trade_price.toDouble()
-                        middleCnt++
-                        middleList.add(coin.trade_price.toDouble())
-                    }
-                    if (index < 50) {
-                        slow += coin.trade_price.toDouble()
-                        slowCnt++
-                    }
-                }
-
-                fast /= fastCnt
-                middle /= middleCnt
-                slow /= slowCnt
-
-                val standardDeviation = Util.getStandardDeviation(middleList)
-                val upper = middle + (standardDeviation * 2)
-                val lower = middle - (standardDeviation * 2)
-                coinIndexList.forEachIndexed { index, coinIndex ->
-                    if (coinIndex.market == market) {
-                        coinIndexList[index].mv =
-                            CoinIndexModel.data.Mv(DecimalFormat("#.###").format(middle))
-                        coinIndexList[index].macd = CoinIndexModel.data.Macd(
-                            DecimalFormat("#.###").format(fast),
-                            DecimalFormat("#.###").format(slow),
-                        )
-                        coinIndexList[index].bb = CoinIndexModel.data.Bb(
-                            DecimalFormat("#.###").format(upper),
-                            DecimalFormat("#.###").format(lower)
-                        )
-                        return@forEachIndexed
-                    }
-                }
-                callBack(true)
-            }, {
-                if (failCnt < 100) candlesDaysApi(market, count, failCnt + 1, callBack)
-                else {
-                    Log.e("lys", "candlesDays fail($failCnt) > $it")
-                    callBack(false)
-                }
-            })
-    }
-
-    private fun crawlingApi(failCnt: Int = 0, callBack: (Boolean) -> Unit) {
-        crawling_api.crawling()
-            .subscribeOn(Schedulers.io())
-            .observeOn(AndroidSchedulers.mainThread())
-            .map { it }
-            .subscribe({
-                fearGreedList = it
-                callBack(true)
-            }, {
-                if (failCnt < 100) crawlingApi(failCnt + 1, callBack)
-                else {
-                    Log.e("lys", "crawling fail > $it")
-                    callBack(false)
-                }
-            })
-    }
-
-    private fun ticker(markets: String, failCnt: Int = 0, callBack: (Boolean) -> Unit) {
-        upbit_api.ticker(markets)
-            .subscribeOn(Schedulers.io())
-            .observeOn(AndroidSchedulers.mainThread())
-            .map { it }
-            .subscribe({
-                Log.d("lys", "ticker success > $it")
-                tickers = it as ArrayList<TickerModel.RS>
-                callBack(true)
-            }, {
-                Log.e("lys", "ticker fail > $it")
-                if (failCnt < 100) ticker(markets, failCnt + 1, callBack)
-                else callBack(false)
-            })
+        }
     }
 
     /**
-     * 주문 조회 > wait
-     * 주문 취소 > cancel
-     * 최근 주문 > done
-     * 매도 > ask
-     * 매수 > bid
+     * 공포 / 탐욕 지수 api
      */
-    private fun orders(
-        type: String,
-        vararg params: String,
-        failCnt: Int = 0,
-        callBack: (Boolean) -> Unit
-    ) {
-        if ("ask" == type) {
-            Log.d("lys", "params[0]>${params[0]}  params[1] > ${params[1]}")
-        }
-        upbit_api.run {
-            when (type) {
-                "wait" ->
-                    orders(
-                        JwtUtil.newToken(
-                            applicationContext,
-                            accessToken,
-                            Pair("state", params[0])
-                        ), params[0]
-                    )
-                "cancel" -> order(
-                    JwtUtil.newToken(applicationContext, accessToken, Pair("uuid", params[0])),
-                    params[0]
-                )
-                "ask" -> orders(
-                    JwtUtil.newToken(
-                        applicationContext, accessToken,
-                        Pair("market", params[0]),
-                        Pair("ord_type", "market"),
-                        Pair("side", "ask"),
-                        Pair("volume", params[1])
-                    ), OrderModel.ASK(params[0], "ask", params[1], "market")
-                )
-                "bid" -> orders(
-                    JwtUtil.newToken(
-                        applicationContext, accessToken,
-                        Pair("market", params[0]),
-                        Pair("ord_type", "price"),
-                        Pair("price", params[1]),
-                        Pair("side", "bid")
-                    ), OrderModel.BID(params[0],"bid",params[1],"price")
-                )
-                "done" -> orders(
-                    JwtUtil.newToken(
-                        applicationContext, accessToken,
-                        Pair("market", params[0]),
-                        Pair("state", params[1])
-                    ), params[0], params[1]
-                )
-                else -> null
-            }?.subscribeOn(Schedulers.io())
-                ?.observeOn(AndroidSchedulers.mainThread())
-                ?.map { it }
-                ?.subscribe({
-                    when (type) {
-                        "wait" -> {
-                            (it as? List<*>)?.let {
-                                waitCoins =
-                                    it.filterIsInstance<OrderModel.RS>() as ArrayList<OrderModel.RS>
-                            }
-                        }
-                        "cancel" -> {
+    private suspend fun crawlingApi(): Boolean =
+        callApi(crawling_api.crawling())?.run {
+            fearGreedList = this
+            true
+        } ?: false
 
-                        }
-                        "ask" -> {
+    /**
+     * 코인들의 현재 시세 조회 api
+     */
+    private suspend fun ticker(market: String): Boolean =
+        callApi(upbit_api.ticker(market))?.run {
+            tickers = this as ArrayList<TickerModel.RS>
+            true
+        } ?: false
 
-                        }
-                        "bid" -> {
+    /**
+     * 주문 조회 api > wait
+     */
+    private suspend fun ordersWait(): Boolean =
+        callApi(upbit_api.orders(token(Pair("state", "wait")), "wait"))?.run {
+            Log.d("lys", "ordersWait >> $this")
+            waitCoins = this as ArrayList<OrderModel.RS>
+            true
+        } ?: false
 
-                        }
-                        "done" -> {
-                            (it as ArrayList<OrderModel.RS>).run {
-                                if (params[1] == "done") doneCoins = this
-                                else if (params[1] == "cancel") cancelCoins = this
-                            }
-                        }
-                    }
-                    callBack(true)
-
-                }, {
-                    if (failCnt < 100) orders(
-                        type = type,
-                        params = params,
-                        failCnt = +1,
-                        callBack = callBack
-                    )
-                    else {
-                        Log.e("lys", "orders $type fail > $it")
-                        callBack(false)
-                    }
-                }) ?: callBack(false)
+    /**
+     * 주문 취소 api > cancel
+     */
+    private suspend fun ordersCancel() = withContext(Dispatchers.IO) {
+        waitCoins.all { coin ->
+            if (!isRunning) return@withContext false
+            delay(100L)
+            callApi(upbit_api.orders((token(Pair("uuid", coin.uuid))), coin.uuid)) != null
         }
     }
+
+    private suspend fun ordersDone(market: String): Boolean {
+        doneCoins = callApi(
+            upbit_api.orders(
+                token(Pair("market", market), Pair("state", "done")), market, "done"
+            )
+        ) as? ArrayList<OrderModel.RS>
+        cancelCoins = callApi(
+            upbit_api.orders(
+                token(Pair("market", market), Pair("state", "cancel")), market, "cancel"
+            )
+        ) as? ArrayList<OrderModel.RS>
+        return doneCoins != null && cancelCoins != null
+    }
+
+    /**
+     * 매도 신청 api > ask
+     */
+    private suspend fun ordersAsk(market: String, volume: String): Boolean =
+        callApi(
+            upbit_api.orders(
+                token(
+                    Pair("market", market), Pair("ord_type", "market"),
+                    Pair("side", "ask"), Pair("volume", volume)
+                ), OrderModel.ASK(market, "ask", volume, "market")
+            )
+        ) != null
+
+    /**
+     * 매수 신청 api > bid
+     */
+    private suspend fun orderBid(market: String, price: String): Boolean =
+        callApi(
+            upbit_api.orders(
+                token(
+                    Pair("market", market), Pair("ord_type", "price"),
+                    Pair("price", price), Pair("side", "bid")
+                ), OrderModel.BID(market, "bid", price, "price")
+            )
+        ) != null
+
+    private fun token(vararg value: Pair<String, Any?>) =
+        JwtUtil.newToken(applicationContext, accessToken, *value)
+
+    private fun token() = JwtUtil.newToken(applicationContext, accessToken)
+
+    private fun <T : Response<R>, R> callApi(api: T): R? =
+        if (api.isSuccessful) {
+//            Log.d("lys","callApi success > ${api.body()}")
+            api.body()
+        } else {
+            Log.e("lys", "callApi fail > ${api.errorBody()}")
+            null
+        }
 }
