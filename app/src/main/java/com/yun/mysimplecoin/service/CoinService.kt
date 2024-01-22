@@ -293,7 +293,7 @@ class CoinService : Service() {
      * 2. 성공적으로 모두 가져오면, 1일 간격 캔들 데이터를 조회하는 로직 시작
      */
     private suspend fun candleMinutesCall() = isRunning && withContext(Dispatchers.IO) {
-        candlesMinutesApi("5") && candleDaysCall()
+        candlesMinutesApi("3") && candleDaysCall()
     }
 
     /**
@@ -340,6 +340,29 @@ class CoinService : Service() {
         // case 6. RSI 30이하, 공포 지수 > 매수
         //TODO 보유한 코인의 손익을 계산해서 매도 영역에 넣어야 함 > 수치는 추후에 생각
         if (!ticker(tickerParams())) return@withContext false
+
+
+        myCoins.forEachIndexed { index, my ->
+            val balance = my.balance
+            val ticker = tickers.find { it.market == "KRW-" + (my.currency) }
+            if (ticker != null) {
+                val nowValue = balance.toDouble() * ticker.trade_price.toDouble()
+                val myValue = balance.toDouble() * my.avg_buy_price.toDouble()
+                val profitLoss = ((nowValue - myValue) / myValue) * 100
+                Log.d(
+                    "lys",
+                    "${my.currency} > ${
+                        String.format(
+                            "%.3f",
+                            nowValue
+                        )
+                    } 원) 손익(${String.format("%.3f", profitLoss)} %)"
+                )
+                if (profitLoss > 5f) bidCoins.add("KRW-" + my.currency)
+                else if (profitLoss < -5f) askCoins.add("KRW-" + my.currency)
+            }
+        }
+
         val r = coinIndexList.withIndex().all { (index, coin) ->
             if (!isRunning) return@withContext false
             when (val case = calculationAskBid(index, coin)) {
@@ -349,14 +372,15 @@ class CoinService : Service() {
             }?.let { (askBid, case) ->
                 when (askBid) {
                     "매수" -> {
+                        if (!bidCoins.contains(coin.market)) bidCoins.add(coin.market)
                         Log.d(
                             "lys",
                             "${coin.market}(${allCoinsNmList[index].korean_name}) > 현재가 ${tickers[index].trade_price} > 매수($case)"
                         )
-                        bidCoins.add(coin.market)
+
                     }
                     "매도" -> {
-                        askCheck(coin.market)
+                        if (!askCoins.contains(coin.market)) askCheck(coin.market)
                         val myCoin = myCoins.find { ("KRW-" + it.currency) == coin.market }
                         var holdings = ""
                         if (myCoin != null) {
@@ -374,7 +398,7 @@ class CoinService : Service() {
                         }
                         Log.d(
                             "lys",
-                            "${coin.market}(${allCoinsNmList[index].korean_name}) > 현재가 ${tickers[index].trade_price} > 매도($case) $holdings"
+                            "${coin.market}(${allCoinsNmList[index].korean_name}) > 현재가 ${tickers[index].trade_price} > 매도($case) > (rsi:${coin.rsi?.rsi}) $holdings"
                         )
 
                     }
@@ -384,6 +408,7 @@ class CoinService : Service() {
             true
         }
         Log.d("lys", "askCoins > ${askCoins}")
+        Log.d("lys", "bidCoins > ${bidCoins}")
         r && sellCoins() && buyCoins()
     }
 
@@ -427,7 +452,10 @@ class CoinService : Service() {
             if (!isRunning) return@withContext false
             val money = myCoins.firstOrNull { it.currency == "KRW" }?.balance?.toDouble()
                 ?: return@all true
-            if (money < 5000.0) return@all true
+            if (money < 5000.0) {
+                Log.d("lys", "보유 금액 부족")
+                return@all true
+            }
             when (bidCheck(coin)) {
                 -1 -> return@all false
                 0 -> {
@@ -641,7 +669,7 @@ class CoinService : Service() {
 //            Log.d("lys","callApi success > ${api.body()}")
             api.body()
         } else {
-            Log.e("lys", "callApi fail > ${api.errorBody()}")
+            Log.e("lys", "callApi fail > ${api.message()}")
             null
         }
 }
